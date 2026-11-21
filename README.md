@@ -3,6 +3,11 @@
 Aplicación web lista para desplegar en **Coolify** con persistencia en **SQLite** (sin datos dummy).
 
 ## Características
+- **Separación Administración vs. Miembros**:
+  - `/` — Portal de miembros (acceso rápido a registro y rifa).
+  - `/registro` — Enlace público para que un miembro se registre.
+  - `/rifa` — Enlace público para que un miembro escoja sus números en la rifa activa (soporta `/rifa?miembro=<id>`).
+  - `/admin` — Panel de administración completo protegido con contraseña/PIN.
 - **Persistencia en SQLite** (`better-sqlite3` en modo WAL) — todos los cambios se guardan en disco en el servidor.
 - **Sin datos dummy** — inicia completamente limpia (`$0` capital base, 0 miembros, 0 rifas, 0 préstamos, 0 movimientos).
 - **Rifa única activa** con talonario interactivo `00–99` y descarga en imagen `.jpg`.
@@ -31,6 +36,7 @@ Aplicación web lista para desplegar en **Coolify** con persistencia en **SQLite
 |---|---|---|
 | `PORT` | `3000` | Puerto HTTP del servidor |
 | `DB_PATH` | `./data/natillera.db` (`/app/data/natillera.db` en Docker) | Ruta del archivo SQLite |
+| `ADMIN_PASSWORD` | *(opcional)* | Contraseña/PIN del panel `/admin`. Si no se define, se configura al primer ingreso en `/admin` y se guarda con hash en SQLite. |
 
 ## Ejecución Local
 ```bash

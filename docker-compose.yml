@@ -6,6 +6,7 @@ services:
       - NODE_ENV=production
       - PORT=3000
       - DB_PATH=/app/data/natillera.db
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-}
     ports:
       - "${APP_PORT:-3000}:3000"
     volumes:

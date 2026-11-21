@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Registro de Miembro — Natillera</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+
+<header class="public-header">
+  <div class="public-header-inner">
+    <h1>Registro de Miembro</h1>
+    <div style="display:flex; gap:0.5rem; flex-wrap:wrap;">
+      <a href="/rifa" class="header-ghost-link">🎟️ Ir a la Rifa</a>
+      <a href="/" class="header-ghost-link">Inicio</a>
+    </div>
+  </div>
+</header>
+
+<main class="public-container public-container-narrow">
+  <div class="card" id="registerCard">
+    <h2 style="color:var(--primary); margin-bottom:0.35rem; font-size:1.3rem;">Inscripción de Nuevo Miembro</h2>
+    <p style="color:var(--muted); font-size:0.9rem; margin-bottom:1.25rem;">
+      Completa tus datos para quedar registrado en la natillera. Una vez registrado, podrás escoger tus números en la rifa activa.
+    </p>
+
+    <div id="registerAlert" class="alert-box" style="display:none;"></div>
+
+    <form id="registerForm" onsubmit="submitPublicRegistration(event)">
+      <div class="form-group">
+        <label for="regName">Nombre completo *</label>
+        <input type="text" id="regName" required minlength="2" maxlength="100" placeholder="Ej. María Fernanda Gómez" autocomplete="name" />
+      </div>
+
+      <div class="form-group">
+        <label for="regPhone">Teléfono / WhatsApp (opcional)</label>
+        <input type="tel" id="regPhone" maxlength="30" placeholder="Ej. 300 123 4567" autocomplete="tel" />
+      </div>
+
+      <button type="submit" id="registerSubmitBtn" class="btn btn-primary" style="width:100%; padding:0.72rem; font-size:0.95rem; margin-top:0.35rem;">
+        Registrarme
+      </button>
+    </form>
+
+    <div style="margin-top:1.15rem; text-align:center; font-size:0.86rem; color:var(--muted);">
+      ¿Ya estás registrado? <a href="/rifa" style="color:var(--primary); font-weight:700;">Escoge tus números de la rifa aquí →</a>
+    </div>
+  </div>
+
+  <div class="card success-card" id="registerSuccessCard" style="display:none;">
+    <div class="success-icon">✓</div>
+    <h2 style="color:var(--status-green-text); margin-bottom:0.4rem;">¡Registro Exitoso!</h2>
+    <p id="successMemberMsg" style="color:var(--text); margin-bottom:1.25rem; font-size:0.95rem;"></p>
+
+    <div style="display:flex; flex-direction:column; gap:0.65rem;">
+      <a id="goToRaffleBtn" href="/rifa" class="btn btn-accent" style="text-align:center; text-decoration:none; padding:0.75rem; font-size:0.95rem;">
+        🎟️ Escoger mis Números de la Rifa
+      </a>
+      <button type="button" class="btn btn-outline" onclick="resetRegistrationForm()">
+        Registrar otro miembro
+      </button>
+    </div>
+  </div>
+</main>
+
+<script src="/registro.js"></script>
+</body>
+</html>

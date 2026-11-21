@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Escoger Números de la Rifa — Natillera</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+
+<header class="public-header">
+  <div class="public-header-inner">
+    <h1>Talonario de la Rifa (00–99)</h1>
+    <div style="display:flex; gap:0.5rem; flex-wrap:wrap;">
+      <a href="/registro" class="header-ghost-link">📝 Registrarme</a>
+      <a href="/" class="header-ghost-link">Inicio</a>
+    </div>
+  </div>
+</header>
+
+<main class="public-container">
+  <div id="publicRaffleAlert" class="alert-box" style="display:none;"></div>
+
+  <div class="card">
+    <div class="card-header">
+      <h2 style="font-size:1.18rem; color:var(--primary);">Escoge tus Números</h2>
+      <button type="button" class="btn btn-outline btn-sm" onclick="loadPublicRaffle()">↻ Actualizar disponibilidad</button>
+    </div>
+
+    <div class="active-raffle-banner" id="pubRaffleBanner">
+      <span>Cargando información de la rifa...</span>
+    </div>
+
+    <div id="pubBoardWrapper" style="display:none;">
+      <div class="board-controls">
+        <div>
+          <label for="pubMemberSelect" style="font-size:0.84rem; font-weight:700; display:block; margin-bottom:0.3rem; color:var(--primary);">
+            1. Selecciona tu nombre:
+          </label>
+          <select id="pubMemberSelect" onchange="onMemberSelectChange()" style="width:100%;"></select>
+          <small style="display:block; margin-top:0.35rem; color:var(--muted); font-size:0.78rem;">
+            ¿No apareces en la lista? <a href="/registro" style="color:var(--primary); font-weight:700;">Regístrate aquí primero</a>.
+          </small>
+        </div>
+
+        <div style="display:flex; flex-direction:column; justify-content:flex-end;">
+          <button type="button" class="btn btn-accent" id="pubConfirmBtn" onclick="confirmPublicNumbers()" style="padding:0.65rem 1rem;">
+            Confirmar Selección (0 números)
+          </button>
+        </div>
+      </div>
+
+      <div id="myNumbersSummary" class="my-numbers-box" style="display:none;"></div>
+
+      <div class="legend">
+        <div class="legend-item"><span class="legend-box" style="background:#fff;"></span> Disponible (Toca para elegir)</div>
+        <div class="legend-item"><span class="legend-box" style="background:var(--status-blue-bg); border-color:var(--status-blue-border);"></span> Tu selección actual</div>
+        <div class="legend-item"><span class="legend-box" style="background:var(--status-orange-bg); border-color:var(--status-orange-border);"></span> Ocupado (Pendiente)</div>
+        <div class="legend-item"><span class="legend-box" style="background:var(--status-green-bg); border-color:var(--status-green-border);"></span> Ocupado (Pagado)</div>
+      </div>
+
+      <div class="number-grid" id="pubNumberGrid"></div>
+
+      <div class="missing-box">
+        <strong id="pubFreeHeader" style="color:var(--text);">Números disponibles:</strong>
+        <div class="missing-list" id="pubFreeList"></div>
+      </div>
+    </div>
+  </div>
+</main>
+
+<script src="/rifa.js"></script>
+</body>
+</html>

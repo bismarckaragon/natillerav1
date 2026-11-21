@@ -1,5 +1,6 @@
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 const Database = require('better-sqlite3');
 
 const DB_PATH = process.env.DB_PATH || path.join(__dirname, '..', 'data', 'natillera.db');
@@ -80,6 +81,22 @@ function initSchema() {
     INSERT OR IGNORE INTO settings (id, interest_rate, base_cash, max_loan_ratio, max_single_loan)
     VALUES (1, 0, 0, 80, 0)
   `).run();
+
+  // Safe schema migrations for existing SQLite databases
+  const settingsCols = db.prepare('PRAGMA table_info(settings)').all().map(c => c.name);
+  if (!settingsCols.includes('admin_password_hash')) {
+    db.exec("ALTER TABLE settings ADD COLUMN admin_password_hash TEXT NOT NULL DEFAULT ''");
+  }
+  if (!settingsCols.includes('session_secret')) {
+    db.exec("ALTER TABLE settings ADD COLUMN session_secret TEXT NOT NULL DEFAULT ''");
+  }
+
+  // Ensure a persistent session secret exists
+  const row = db.prepare('SELECT session_secret FROM settings WHERE id = 1').get();
+  if (!row || !row.session_secret) {
+    const secret = crypto.randomBytes(32).toString('hex');
+    db.prepare('UPDATE settings SET session_secret = ? WHERE id = 1').run(secret);
+  }
 }
 
 initSchema();
@@ -588,6 +605,140 @@ const importBackup = db.transaction((data) => {
   }
 });
 
+function hashPassword(password) {
+  const salt = crypto.randomBytes(16).toString('hex');
+  const derived = crypto.scryptSync(String(password), salt, 64).toString('hex');
+  return `${salt}:${derived}`;
+}
+
+function verifyPasswordHash(password, storedHash) {
+  if (!storedHash || !storedHash.includes(':')) return false;
+  const [salt, keyHex] = storedHash.split(':');
+  const derived = crypto.scryptSync(String(password), salt, 64);
+  const keyBuf = Buffer.from(keyHex, 'hex');
+  if (derived.length !== keyBuf.length) return false;
+  return crypto.timingSafeEqual(derived, keyBuf);
+}
+
+function getAuthInfo() {
+  const envPassword = (process.env.ADMIN_PASSWORD || '').trim();
+  if (envPassword) {
+    return { configured: true, envManaged: true };
+  }
+  const row = db.prepare('SELECT admin_password_hash FROM settings WHERE id = 1').get();
+  return {
+    configured: Boolean(row && row.admin_password_hash),
+    envManaged: false
+  };
+}
+
+function setAdminPassword(password) {
+  const clean = String(password || '').trim();
+  if (clean.length < 4) {
+    const err = new Error('La contraseña o PIN debe tener al menos 4 caracteres.');
+    err.status = 400;
+    throw err;
+  }
+  const hash = hashPassword(clean);
+  db.prepare('UPDATE settings SET admin_password_hash = ? WHERE id = 1').run(hash);
+}
+
+function verifyAdminPassword(password) {
+  const envPassword = (process.env.ADMIN_PASSWORD || '').trim();
+  if (envPassword) {
+    const a = Buffer.from(String(password || ''));
+    const b = Buffer.from(envPassword);
+    return a.length === b.length && crypto.timingSafeEqual(a, b);
+  }
+  const row = db.prepare('SELECT admin_password_hash FROM settings WHERE id = 1').get();
+  if (!row || !row.admin_password_hash) return false;
+  return verifyPasswordHash(String(password || ''), row.admin_password_hash);
+}
+
+function getSessionSecret() {
+  if (process.env.SESSION_SECRET && process.env.SESSION_SECRET.trim()) {
+    return process.env.SESSION_SECRET.trim();
+  }
+  const row = db.prepare('SELECT session_secret FROM settings WHERE id = 1').get();
+  return row ? row.session_secret : 'natillera-fallback-secret';
+}
+
+function getPublicRaffleState() {
+  const membersRows = db.prepare('SELECT id, name FROM members ORDER BY name COLLATE NOCASE ASC').all();
+  const memberNameById = new Map(membersRows.map(m => [m.id, m.name]));
+
+  const activeRaffle = db.prepare("SELECT id, name, price FROM raffles WHERE status = 'active' LIMIT 1").get();
+  let raffle = null;
+  if (activeRaffle) {
+    const picksRows = db.prepare('SELECT number_code, member_id, paid FROM raffle_picks WHERE raffle_id = ?').all(activeRaffle.id);
+    const picks = {};
+    for (const p of picksRows) {
+      const fullName = memberNameById.get(p.member_id) || 'Ocupado';
+      picks[p.number_code] = {
+        memberId: p.member_id,
+        firstName: fullName.split(' ')[0],
+        paid: Boolean(p.paid)
+      };
+    }
+    raffle = {
+      id: activeRaffle.id,
+      name: activeRaffle.name,
+      price: Number(activeRaffle.price),
+      picks
+    };
+  }
+
+  return {
+    raffle,
+    members: membersRows.map(m => ({ id: m.id, name: m.name }))
+  };
+}
+
+const createPublicMember = db.transaction(({ name, phone = '' }) => {
+  const cleanName = String(name || '').trim();
+  const cleanPhone = String(phone || '').trim();
+  if (!cleanName || cleanName.length < 2) {
+    const err = new Error('Por favor ingresa tu nombre completo.');
+    err.status = 400;
+    throw err;
+  }
+
+  const existing = db.prepare('SELECT id, name FROM members WHERE LOWER(TRIM(name)) = LOWER(?)').get(cleanName);
+  if (existing) {
+    const err = new Error(`Ya existe un miembro registrado con el nombre "${existing.name}". Si ya te registraste, puedes ir directo a escoger tus números.`);
+    err.status = 409;
+    throw err;
+  }
+
+  const member = createMember({ name: cleanName, phone: cleanPhone });
+  addHistory(
+    todayCO(),
+    member.name,
+    'Auto-registro de Miembro',
+    0,
+    cleanPhone ? `Tel: ${cleanPhone} (vía enlace público)` : 'Registrado vía enlace público'
+  );
+
+  const activeRaffle = db.prepare("SELECT id, name, price FROM raffles WHERE status = 'active' LIMIT 1").get();
+  return {
+    member: { id: member.id, name: member.name },
+    activeRaffle: activeRaffle
+      ? { id: activeRaffle.id, name: activeRaffle.name, price: Number(activeRaffle.price) }
+      : null
+  };
+});
+
+function assignPublicPicks({ memberId, numbers }) {
+  const activeRaffle = db.prepare("SELECT id FROM raffles WHERE status = 'active' LIMIT 1").get();
+  if (!activeRaffle) {
+    const err = new Error('En este momento no hay ninguna rifa activa.');
+    err.status = 404;
+    throw err;
+  }
+  assignPicks(activeRaffle.id, { memberId, numbers });
+  return getPublicRaffleState();
+}
+
 function closeDb() {
   db.close();
 }
@@ -612,5 +763,12 @@ module.exports = {
   deleteLoan,
   clearHistory,
   importBackup,
+  getAuthInfo,
+  setAdminPassword,
+  verifyAdminPassword,
+  getSessionSecret,
+  getPublicRaffleState,
+  createPublicMember,
+  assignPublicPicks,
   closeDb
 };

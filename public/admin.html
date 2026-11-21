@@ -3,13 +3,59 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Gestión de Fondos — Rifa Única Activa, Capital y Préstamos</title>
+  <title>Administración — Gestión de Fondos, Rifa y Préstamos</title>
   <link rel="stylesheet" href="/styles.css" />
 </head>
 <body>
 
+<!-- PANTALLA DE ACCESO ADMINISTRADOR -->
+<div id="adminAuthGate" class="auth-gate">
+  <div class="auth-card">
+    <div class="auth-badge">PANEL DE ADMINISTRACIÓN</div>
+    <h2 id="authTitle">Iniciar Sesión</h2>
+    <p id="authSubtitle" style="color:var(--muted); font-size:0.88rem; margin-bottom:1.1rem;">
+      Ingresa la contraseña o PIN de administrador para gestionar el fondo.
+    </p>
+
+    <div id="authError" class="alert-box alert-err" style="display:none;"></div>
+
+    <form id="authForm" onsubmit="submitAdminAuth(event)">
+      <div class="form-group">
+        <label id="authPasswordLabel" for="authPasswordInput">Contraseña / PIN *</label>
+        <input type="password" id="authPasswordInput" required minlength="4" placeholder="Ingresa tu contraseña o PIN" autocomplete="current-password" />
+      </div>
+
+      <div class="form-group" id="authConfirmGroup" style="display:none;">
+        <label for="authConfirmInput">Confirmar Contraseña / PIN *</label>
+        <input type="password" id="authConfirmInput" minlength="4" placeholder="Repite la contraseña o PIN" autocomplete="new-password" />
+      </div>
+
+      <button type="submit" id="authSubmitBtn" class="btn btn-primary" style="width:100%; padding:0.7rem; font-size:0.94rem;">
+        Ingresar
+      </button>
+    </form>
+
+    <div class="auth-footer-links">
+      <a href="/">← Ir al Portal de Miembros</a>
+      <a href="/rifa">🎟️ Ver Talonario Público</a>
+    </div>
+  </div>
+</div>
+
+<!-- APLICACIÓN PRINCIPAL DE ADMINISTRACIÓN (OCULTA HASTA AUTENTICAR) -->
+<div id="adminApp" style="display:none;">
+
 <header>
-  <h1>Gestión de Fondos — Rifa Activa, Capital y Préstamos</h1>
+  <div class="admin-header-top">
+    <div>
+      <h1>Panel de Administración — Natillera</h1>
+    </div>
+    <div class="admin-header-actions">
+      <a href="/" class="header-ghost-link" target="_blank">Portal Miembros ↗</a>
+      <button type="button" class="header-ghost-btn" id="changePwdHeaderBtn" onclick="openChangePasswordModal()" style="display:none;">🔑 Contraseña</button>
+      <button type="button" class="header-ghost-btn" onclick="logoutAdmin()">Cerrar Sesión</button>
+    </div>
+  </div>
   <nav class="nav-tabs">
     <button class="tab-btn active" onclick="switchTab('resumen', this)">1. Resumen General</button>
     <button class="tab-btn" onclick="switchTab('miembros', this)">2. Registro por Miembro</button>
@@ -20,6 +66,24 @@
 </header>
 
 <div class="container">
+
+  <!-- Barra de Enlaces para Compartir con Miembros -->
+  <div class="share-links-bar">
+    <div class="share-links-title">
+      <strong>Enlaces para enviar a miembros:</strong>
+      <small>Compártelos por WhatsApp sin dar acceso al panel de administración.</small>
+    </div>
+    <div class="share-links-actions">
+      <button type="button" class="btn btn-primary btn-sm" onclick="copyPublicLink('/registro', 'Registro de Miembro')">
+        🔗 Copiar Link de Registro
+      </button>
+      <button type="button" class="btn btn-accent btn-sm" onclick="copyPublicLink('/rifa', 'Escoger Números de la Rifa')">
+        🎟️ Copiar Link de Rifa
+      </button>
+      <a href="/registro" target="_blank" class="btn btn-outline btn-sm" style="text-decoration:none;">Abrir Registro ↗</a>
+      <a href="/rifa" target="_blank" class="btn btn-outline btn-sm" style="text-decoration:none;">Abrir Rifa ↗</a>
+    </div>
+  </div>
 
   <!-- Barra de Parámetros y Respaldo -->
   <div class="config-bar">
@@ -89,6 +153,7 @@
         <h3>Registro Detallado por Miembro</h3>
         <div style="display:flex; gap:0.5rem; flex-wrap:wrap;">
           <input type="text" id="searchMember" placeholder="Buscar miembro..." oninput="renderAll()">
+          <button class="btn btn-outline btn-sm" onclick="copyPublicLink('/registro', 'Registro de Miembro')">🔗 Link Registro</button>
           <button class="btn btn-primary" onclick="openModal('memberModal')">+ Nuevo Miembro</button>
         </div>
       </div>
@@ -97,7 +162,7 @@
         <thead>
           <tr>
             <th style="width:15%;">Miembro</th>
-            <th style="width:36%;">Números Escogidos (Rifa Activa y Saldos)</th>
+            <th style="width:34%;">Números Escogidos (Rifa Activa y Saldos)</th>
             <th class="text-right">Saldo Boletas</th>
             <th class="text-right">Préstamos a Cargo</th>
             <th class="text-right">Interés Mes</th>
@@ -134,7 +199,10 @@
     <div class="card">
       <div class="card-header">
         <h3>Talonario 00 al 99 — Solo Rifa Activa</h3>
-        <button class="btn btn-jpg" id="downloadJpgBtn" onclick="downloadRaffleJPG()">Descargar Tabla JPG (Tachados / Disponibles)</button>
+        <div style="display:flex; gap:0.5rem; flex-wrap:wrap;">
+          <button class="btn btn-outline btn-sm" onclick="copyPublicLink('/rifa', 'Escoger Números de la Rifa')">🔗 Copiar Link para Miembros</button>
+          <button class="btn btn-jpg" id="downloadJpgBtn" onclick="downloadRaffleJPG()">Descargar Tabla JPG (Tachados / Disponibles)</button>
+        </div>
       </div>
 
       <!-- Banner informativo de la única rifa activa -->
@@ -275,6 +343,31 @@
     </div>
   </section>
 
+</div>
+
+<!-- MODAL: CAMBIAR CONTRASEÑA ADMIN -->
+<div class="modal-backdrop" id="changePasswordModal">
+  <div class="modal">
+    <h3>Cambiar Contraseña de Administrador</h3>
+    <form onsubmit="saveNewAdminPassword(event)">
+      <div class="form-group">
+        <label>Contraseña actual *</label>
+        <input type="password" id="cpCurrent" required autocomplete="current-password">
+      </div>
+      <div class="form-group">
+        <label>Nueva contraseña / PIN (mín. 4 caracteres) *</label>
+        <input type="password" id="cpNew" required minlength="4" autocomplete="new-password">
+      </div>
+      <div class="form-group">
+        <label>Confirmar nueva contraseña *</label>
+        <input type="password" id="cpConfirm" required minlength="4" autocomplete="new-password">
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-outline" onclick="closeModal('changePasswordModal')">Cancelar</button>
+        <button type="submit" class="btn btn-primary">Guardar Contraseña</button>
+      </div>
+    </form>
+  </div>
 </div>
 
 <!-- MODAL: NUEVA RIFA -->
@@ -481,6 +574,10 @@
     </form>
   </div>
 </div>
+
+</div> <!-- /#adminApp -->
+
+<div id="toast" class="toast"></div>
 
 <script src="/app.js"></script>
 </body>

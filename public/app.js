@@ -12,6 +12,164 @@ let state = {
 };
 
 let tempSelectedNumbers = new Set();
+let authState = { authenticated: false, configured: false, envManaged: false };
+let toastTimer = null;
+
+function showToast(msg) {
+  const el = document.getElementById('toast');
+  if (!el) return alert(msg);
+  el.textContent = msg;
+  el.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove('show'), 2800);
+}
+
+function copyText(text, successMsg) {
+  if (navigator.clipboard?.writeText) {
+    navigator.clipboard.writeText(text).then(
+      () => showToast(successMsg),
+      () => prompt('Copia este enlace:', text)
+    );
+  } else {
+    prompt('Copia este enlace:', text);
+  }
+}
+
+function copyPublicLink(pathStr, label) {
+  const url = `${window.location.origin}${pathStr}`;
+  copyText(url, `Enlace de ${label} copiado: ${url}`);
+}
+
+function copyMemberRaffleLink(memberId, memberName) {
+  const url = `${window.location.origin}/rifa?miembro=${encodeURIComponent(memberId)}`;
+  copyText(url, `Link directo de rifa copiado para ${memberName}`);
+}
+
+function showAuthGate(status) {
+  authState = status;
+  document.getElementById('adminApp').style.display = 'none';
+  document.getElementById('adminAuthGate').style.display = 'flex';
+  document.getElementById('authError').style.display = 'none';
+  document.getElementById('authForm').reset();
+
+  const title = document.getElementById('authTitle');
+  const subtitle = document.getElementById('authSubtitle');
+  const pwdLabel = document.getElementById('authPasswordLabel');
+  const confirmGroup = document.getElementById('authConfirmGroup');
+  const confirmInput = document.getElementById('authConfirmInput');
+  const submitBtn = document.getElementById('authSubmitBtn');
+
+  if (!status.configured) {
+    title.textContent = 'Configurar Contraseña de Administrador';
+    subtitle.textContent = 'Es la primera vez que ingresas. Crea una contraseña o PIN para proteger el panel de administración.';
+    pwdLabel.textContent = 'Nueva Contraseña / PIN (mín. 4 caracteres) *';
+    confirmGroup.style.display = 'block';
+    confirmInput.required = true;
+    submitBtn.textContent = 'Guardar y Entrar';
+  } else {
+    title.textContent = 'Acceso Administrador';
+    subtitle.textContent = 'Ingresa tu contraseña o PIN para administrar la natillera.';
+    pwdLabel.textContent = 'Contraseña / PIN *';
+    confirmGroup.style.display = 'none';
+    confirmInput.required = false;
+    submitBtn.textContent = 'Ingresar';
+  }
+}
+
+function showAdminApp(status) {
+  authState = status;
+  document.getElementById('adminAuthGate').style.display = 'none';
+  document.getElementById('adminApp').style.display = 'block';
+  const pwdBtn = document.getElementById('changePwdHeaderBtn');
+  if (pwdBtn) {
+    pwdBtn.style.display = status.envManaged ? 'none' : 'inline-block';
+  }
+}
+
+async function initAuth() {
+  try {
+    const res = await fetch('/api/auth/status');
+    const status = await res.json();
+    if (status.authenticated) {
+      showAdminApp(status);
+      await loadState();
+    } else {
+      showAuthGate(status);
+    }
+  } catch (err) {
+    console.error(err);
+    alert('No se pudo conectar con el servidor: ' + err.message);
+  }
+}
+
+async function submitAdminAuth(e) {
+  e.preventDefault();
+  const errEl = document.getElementById('authError');
+  errEl.style.display = 'none';
+
+  const password = document.getElementById('authPasswordInput').value;
+  const confirmPwd = document.getElementById('authConfirmInput').value;
+
+  if (!authState.configured && password !== confirmPwd) {
+    errEl.textContent = 'Las contraseñas no coinciden.';
+    errEl.style.display = 'block';
+    return;
+  }
+
+  const endpoint = authState.configured ? '/api/auth/login' : '/api/auth/setup';
+  try {
+    const res = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password })
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      throw new Error(data.error || `Error HTTP ${res.status}`);
+    }
+    showAdminApp(data);
+    await loadState();
+  } catch (err) {
+    errEl.textContent = err.message;
+    errEl.style.display = 'block';
+  }
+}
+
+async function logoutAdmin() {
+  await fetch('/api/auth/logout', { method: 'POST' }).catch(() => {});
+  const res = await fetch('/api/auth/status').catch(() => null);
+  const status = res ? await res.json() : { authenticated: false, configured: true, envManaged: authState.envManaged };
+  showAuthGate(status);
+}
+
+function openChangePasswordModal() {
+  document.getElementById('cpCurrent').value = '';
+  document.getElementById('cpNew').value = '';
+  document.getElementById('cpConfirm').value = '';
+  openModal('changePasswordModal');
+}
+
+async function saveNewAdminPassword(e) {
+  e.preventDefault();
+  const currentPassword = document.getElementById('cpCurrent').value;
+  const newPassword = document.getElementById('cpNew').value;
+  const confirmPwd = document.getElementById('cpConfirm').value;
+
+  if (newPassword !== confirmPwd) {
+    return alert('La nueva contraseña y su confirmación no coinciden.');
+  }
+
+  try {
+    await apiRequest('/api/auth/change-password', {
+      method: 'POST',
+      body: JSON.stringify({ currentPassword, newPassword })
+    });
+    closeModal('changePasswordModal');
+    showToast('Contraseña de administrador actualizada.');
+  } catch (err) {
+    alert(err.message);
+  }
+}
 
 function escapeHtml(str) {
   return String(str ?? '')
@@ -28,6 +186,10 @@ async function apiRequest(url, options = {}) {
     ...options
   });
   const data = await res.json().catch(() => ({}));
+  if (res.status === 401 && url !== '/api/auth/change-password') {
+    showAuthGate({ authenticated: false, configured: true, envManaged: authState.envManaged });
+    throw new Error(data.error || 'Sesión expirada. Inicia sesión nuevamente.');
+  }
   if (!res.ok) {
     throw new Error(data.error || `Error HTTP ${res.status}`);
   }
@@ -334,8 +496,11 @@ function renderAll() {
           <td class="text-right" style="color:var(--primary); font-weight:700;">${formatMoney(lStats.monthlyInterest)}</td>
           <td class="text-right">${formatMoney(lStats.interestPaid)}</td>
           <td>
-            <button class="btn btn-accent btn-sm" onclick="openActionModal('${escapeHtml(m.id)}')">Pagar Boletas</button>
-            <button class="btn btn-outline btn-sm" onclick="deleteMember('${escapeHtml(m.id)}')">Eliminar</button>
+            <div style="display:flex; gap:0.35rem; flex-wrap:wrap;">
+              <button class="btn btn-accent btn-sm" onclick="openActionModal('${escapeHtml(m.id)}')">Pagar Boletas</button>
+              <button class="btn btn-outline btn-sm" onclick="copyMemberRaffleLink('${escapeHtml(m.id)}', '${escapeHtml(m.name)}')" title="Copiar enlace directo a la rifa con este miembro preseleccionado">🔗 Link Rifa</button>
+              <button class="btn btn-outline btn-sm" onclick="deleteMember('${escapeHtml(m.id)}')">Eliminar</button>
+            </div>
           </td>
         </tr>
       `;
@@ -1171,4 +1336,4 @@ function importBackup(event) {
   reader.readAsText(file);
 }
 
-loadState();
+initAuth();
