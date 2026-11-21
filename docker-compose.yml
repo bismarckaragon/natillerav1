@@ -1,0 +1,15 @@
+services:
+  natillera:
+    build: .
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - DB_PATH=/app/data/natillera.db
+    ports:
+      - "${APP_PORT:-3000}:3000"
+    volumes:
+      - natillera_data:/app/data
+
+volumes:
+  natillera_data:

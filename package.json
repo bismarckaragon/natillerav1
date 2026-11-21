@@ -1,0 +1,17 @@
+{
+  "name": "natillera-app",
+  "version": "1.0.0",
+  "description": "Aplicación web de gestión de fondos, rifa única activa (talonario 00-99), capital y préstamos con persistencia en SQLite.",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.9.1",
+    "express": "^4.21.2"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}

@@ -1,0 +1,487 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Gestión de Fondos — Rifa Única Activa, Capital y Préstamos</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+
+<header>
+  <h1>Gestión de Fondos — Rifa Activa, Capital y Préstamos</h1>
+  <nav class="nav-tabs">
+    <button class="tab-btn active" onclick="switchTab('resumen', this)">1. Resumen General</button>
+    <button class="tab-btn" onclick="switchTab('miembros', this)">2. Registro por Miembro</button>
+    <button class="tab-btn" onclick="switchTab('talonario', this)">3. Talonario 00–99 (Rifa Activa)</button>
+    <button class="tab-btn" onclick="switchTab('prestamos', this)">4. Control de Préstamos y Capital</button>
+    <button class="tab-btn" onclick="switchTab('rifas', this)">5. Gestión e Historial de Rifas</button>
+  </nav>
+</header>
+
+<div class="container">
+
+  <!-- Barra de Parámetros y Respaldo -->
+  <div class="config-bar">
+    <div class="config-group">
+      <label for="interestRateInput">Tasa Base Sugerida (% mensual):</label>
+      <input type="number" id="interestRateInput" min="0" max="100" step="0.5" onchange="updateSettings()" style="width: 80px;">
+      <button class="btn btn-primary btn-sm" id="topNewRaffleBtn" onclick="tryOpenNewRaffleModal()">+ Nueva Rifa</button>
+      <button class="btn btn-accent btn-sm" onclick="openNewLoanModal()">+ Nuevo Préstamo</button>
+    </div>
+    <div class="config-group">
+      <button class="btn btn-outline btn-sm" onclick="exportBackup()">Exportar Respaldo (JSON)</button>
+      <label class="btn btn-outline btn-sm" style="cursor:pointer;">
+        Importar JSON <input type="file" accept=".json" onchange="importBackup(event)" style="display:none;">
+      </label>
+    </div>
+  </div>
+
+  <!-- SECCIÓN 1: RESUMEN GENERAL -->
+  <section id="sec-resumen" class="section active">
+    <div class="kpi-grid" id="kpiContainer"></div>
+
+    <div class="card">
+      <div class="card-header">
+        <h3>Rifa Activa Actual (Talonario 00 al 99)</h3>
+        <div id="summaryRaffleActionArea"></div>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th>Nombre de la Rifa</th>
+            <th>Estado</th>
+            <th class="text-right">Valor Boleta</th>
+            <th class="text-right">Escogidos / 100</th>
+            <th class="text-right">Faltan por Escoger</th>
+            <th class="text-right">Pagados</th>
+            <th class="text-right">Recaudado</th>
+            <th class="text-right">Pendiente por Cobrar</th>
+          </tr>
+        </thead>
+        <tbody id="activeRaffleSummaryBody"></tbody>
+      </table>
+    </div>
+
+    <div class="card">
+      <div class="card-header">
+        <h3>Consolidado de Responsabilidad por Miembro (Rifas + Préstamos a Cargo)</h3>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th>Miembro Responsable</th>
+            <th class="text-right">Pendiente Boletas</th>
+            <th class="text-right">Capital Prestado a su Cargo</th>
+            <th class="text-right">Interés Mensual (Según Tasa)</th>
+            <th class="text-right">Total Responsabilidad + Interés Mes</th>
+          </tr>
+        </thead>
+        <tbody id="summaryAlertsBody"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- SECCIÓN 2: REGISTRO POR MIEMBRO -->
+  <section id="sec-miembros" class="section">
+    <div class="card">
+      <div class="card-header">
+        <h3>Registro Detallado por Miembro</h3>
+        <div style="display:flex; gap:0.5rem; flex-wrap:wrap;">
+          <input type="text" id="searchMember" placeholder="Buscar miembro..." oninput="renderAll()">
+          <button class="btn btn-primary" onclick="openModal('memberModal')">+ Nuevo Miembro</button>
+        </div>
+      </div>
+
+      <table>
+        <thead>
+          <tr>
+            <th style="width:15%;">Miembro</th>
+            <th style="width:36%;">Números Escogidos (Rifa Activa y Saldos)</th>
+            <th class="text-right">Saldo Boletas</th>
+            <th class="text-right">Préstamos a Cargo</th>
+            <th class="text-right">Interés Mes</th>
+            <th class="text-right">Int. Pagados</th>
+            <th>Acciones</th>
+          </tr>
+        </thead>
+        <tbody id="membersTableBody"></tbody>
+      </table>
+    </div>
+
+    <div class="card">
+      <div class="card-header">
+        <h3>Historial Reciente de Movimientos</h3>
+        <button class="btn btn-outline btn-sm" onclick="clearHistory()">Limpiar Historial</button>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th>Fecha</th>
+            <th>Responsable</th>
+            <th>Operación</th>
+            <th class="text-right">Monto</th>
+            <th>Detalle</th>
+          </tr>
+        </thead>
+        <tbody id="historyTableBody"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- SECCIÓN 3: TALONARIO 00 - 99 (SOLO RIFA ACTIVA) -->
+  <section id="sec-talonario" class="section">
+    <div class="card">
+      <div class="card-header">
+        <h3>Talonario 00 al 99 — Solo Rifa Activa</h3>
+        <button class="btn btn-jpg" id="downloadJpgBtn" onclick="downloadRaffleJPG()">Descargar Tabla JPG (Tachados / Disponibles)</button>
+      </div>
+
+      <!-- Banner informativo de la única rifa activa -->
+      <div class="active-raffle-banner" id="boardActiveRaffleInfo"></div>
+
+      <div id="boardInteractiveWrapper">
+        <div class="board-controls">
+          <div>
+            <label style="font-size:0.82rem; font-weight:700; display:block; margin-bottom:0.3rem; color:var(--primary);">Miembro que escoge números en la rifa activa:</label>
+            <select id="boardMemberSelect" onchange="renderBoard()" style="width:100%;"></select>
+          </div>
+          <div style="display:flex; flex-direction:column; justify-content:flex-end;">
+            <button class="btn btn-accent" id="confirmSelectionBtn" onclick="confirmSelectedNumbers()">
+              Confirmar Selección (0 números)
+            </button>
+          </div>
+        </div>
+
+        <div class="legend">
+          <div class="legend-item"><span class="legend-box" style="background:#fff;"></span> Libre (Clic para escoger)</div>
+          <div class="legend-item"><span class="legend-box" style="background:var(--status-blue-bg); border-color:var(--status-blue-border);"></span> Seleccionado ahora</div>
+          <div class="legend-item"><span class="legend-box" style="background:var(--status-orange-bg); border-color:var(--status-orange-border);"></span> Ocupado - Pendiente de pago</div>
+          <div class="legend-item"><span class="legend-box" style="background:var(--status-green-bg); border-color:var(--status-green-border);"></span> Ocupado - Pagado</div>
+        </div>
+
+        <div class="number-grid" id="numberGrid"></div>
+
+        <div class="missing-box">
+          <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:0.5rem;">
+            <strong id="missingHeader" style="color:var(--text);">Vista Administrador — Números que faltan por escoger:</strong>
+            <button class="btn btn-outline btn-sm" onclick="copyMissingNumbers()">Copiar lista disponibles</button>
+          </div>
+          <div class="missing-list" id="missingNumbersList"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- SECCIÓN 4: CONTROL DE PRÉSTAMOS Y CAPITAL -->
+  <section id="sec-prestamos" class="section">
+    <div class="kpi-grid" id="loanCashKpiContainer"></div>
+
+    <div class="card">
+      <div class="card-header">
+        <h3>Configuración de Capital del Fondo y Límites de Préstamo</h3>
+        <button class="btn btn-accent" onclick="openNewLoanModal()">+ Registrar Nuevo Préstamo</button>
+      </div>
+
+      <div class="policy-grid">
+        <div>
+          <label style="font-size:0.82rem; font-weight:700; color:var(--primary); display:block; margin-bottom:0.3rem;">
+            Aporte Inicial / Capital Base ($):
+          </label>
+          <input type="number" id="baseCashInput" min="0" step="1000" onchange="updateLoanPolicies()" style="width:100%;">
+          <small style="color:var(--muted); font-size:0.76rem;">Se suma a rifas e intereses para formar el Capital Total.</small>
+        </div>
+
+        <div>
+          <label style="font-size:0.82rem; font-weight:700; color:var(--primary); display:block; margin-bottom:0.3rem;">
+            Límite Máximo Prestado (% del Capital Total):
+          </label>
+          <input type="number" id="maxLoanRatioInput" min="1" max="100" step="5" onchange="updateLoanPolicies()" style="width:100%;">
+          <small style="color:var(--muted); font-size:0.76rem;">Porcentaje del Capital Total habilitado para prestar.</small>
+        </div>
+
+        <div>
+          <label style="font-size:0.82rem; font-weight:700; color:var(--primary); display:block; margin-bottom:0.3rem;">
+            Tope Máximo por Préstamo Individual ($):
+          </label>
+          <input type="number" id="maxSingleLoanInput" min="0" step="10000" onchange="updateLoanPolicies()" style="width:100%;">
+          <small style="color:var(--muted); font-size:0.76rem;">0 = sin tope fijo (solo aplica el límite sobre el Capital Total).</small>
+        </div>
+
+        <div>
+          <label style="font-size:0.82rem; font-weight:700; color:var(--primary); display:block; margin-bottom:0.3rem;">
+            Uso del Capital Total en Préstamos:
+          </label>
+          <div id="loanCapacityText" style="font-weight:700; font-size:0.9rem; margin-top:0.2rem;"></div>
+          <div class="progress-bar-wrap">
+            <div class="progress-bar-fill" id="loanCapacityBar" style="width:0%;"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card-header" style="margin-top:0.5rem;">
+        <h4>Cartera Detallada de Préstamos (Con Tasa Individual por Préstamo)</h4>
+        <select id="filterLoanStatus" onchange="renderAll()" style="width:200px;">
+          <option value="active">Solo Préstamos Activos</option>
+          <option value="all">Todos (Activos y Saldados)</option>
+        </select>
+      </div>
+
+      <table>
+        <thead>
+          <tr>
+            <th>Fecha</th>
+            <th>Deudor (Quien recibió el dinero)</th>
+            <th>Tipo</th>
+            <th>Miembro Responsable</th>
+            <th class="text-right">Monto Inicial</th>
+            <th class="text-right">Saldo Adeudado</th>
+            <th class="text-right">Tasa Mes</th>
+            <th class="text-right">Interés Mes ($)</th>
+            <th class="text-right">Int. Cobrados</th>
+            <th>Acciones</th>
+          </tr>
+        </thead>
+        <tbody id="loansTableBody"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- SECCIÓN 5: GESTIÓN E HISTORIAL DE RIFAS -->
+  <section id="sec-rifas" class="section">
+    <div class="card">
+      <div class="card-header">
+        <h3>Control de Rifa Activa e Historial de Rifas Cerradas</h3>
+        <button class="btn btn-primary" id="secRifasNewBtn" onclick="tryOpenNewRaffleModal()">+ Crear Nueva Rifa</button>
+      </div>
+
+      <div id="raffleRuleBanner" class="alert-box alert-warn" style="margin-bottom:1rem;"></div>
+
+      <table>
+        <thead>
+          <tr>
+            <th>Nombre de la Rifa</th>
+            <th>Estado</th>
+            <th class="text-right">Precio Boleta</th>
+            <th class="text-right">Escogidos</th>
+            <th class="text-right">Pagados</th>
+            <th class="text-right">Total Recaudado</th>
+            <th class="text-right">Pendiente</th>
+            <th>Acciones</th>
+          </tr>
+        </thead>
+        <tbody id="rafflesManageBody"></tbody>
+      </table>
+    </div>
+  </section>
+
+</div>
+
+<!-- MODAL: NUEVA RIFA -->
+<div class="modal-backdrop" id="raffleModal">
+  <div class="modal">
+    <h3>Crear Nueva Rifa Activa (Números 00 al 99)</h3>
+    <p style="font-size:0.84rem; color:var(--muted); margin-bottom:0.9rem;">
+      Esta rifa quedará habilitada como la única rifa activa para que los miembros escojan números.
+    </p>
+    <form onsubmit="saveNewRaffle(event)">
+      <div class="form-group">
+        <label>Nombre o descripción de la rifa *</label>
+        <input type="text" id="rName" required placeholder="Ej. Rifa Efectivo $1.000.000">
+      </div>
+      <div class="form-group">
+        <label>Precio de cada boleta ($) *</label>
+        <input type="number" id="rPrice" min="100" step="100" required placeholder="Ej. 20000">
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-outline" onclick="closeModal('raffleModal')">Cancelar</button>
+        <button type="submit" class="btn btn-primary">Iniciar Rifa Activa</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- MODAL: NUEVO MIEMBRO -->
+<div class="modal-backdrop" id="memberModal">
+  <div class="modal">
+    <h3>Registrar Nuevo Miembro</h3>
+    <form onsubmit="saveNewMember(event)">
+      <div class="form-group">
+        <label>Nombre completo *</label>
+        <input type="text" id="mName" required placeholder="Ej. Carlos Mendoza">
+      </div>
+      <div class="form-group">
+        <label>Teléfono / WhatsApp (opcional)</label>
+        <input type="text" id="mPhone" placeholder="Ej. 300 123 4567">
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-outline" onclick="closeModal('memberModal')">Cancelar</button>
+        <button type="submit" class="btn btn-primary">Guardar Miembro</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- MODAL: FORMULARIO COMPLETO DE NUEVO PRÉSTAMO -->
+<div class="modal-backdrop" id="newLoanModal">
+  <div class="modal">
+    <h3>Formulario de Desembolso de Préstamo</h3>
+    <div id="loanLimitBanner" class="alert-box alert-ok"></div>
+
+    <form onsubmit="saveNewLoan(event)">
+      <div class="form-group">
+        <label>1. Miembro Responsable (Obligatorio — Codeudor / Encargado) *</label>
+        <select id="loanSponsorId" required onchange="onBorrowerTypeChange()"></select>
+      </div>
+
+      <div class="form-group">
+        <label>2. ¿A quién se le entrega el dinero? *</label>
+        <select id="loanBorrowerType" onchange="onBorrowerTypeChange()">
+          <option value="member">Al mismo Miembro</option>
+          <option value="external">A un Externo (Tercero respaldado por el miembro)</option>
+        </select>
+      </div>
+
+      <div class="form-row">
+        <div class="form-group">
+          <label>Nombre completo del Deudor *</label>
+          <input type="text" id="bFullName" required placeholder="Nombre y apellidos">
+        </div>
+        <div class="form-group">
+          <label>Cédula / Documento de Identidad *</label>
+          <input type="text" id="bDocument" required placeholder="Ej. 1.037.654.321">
+        </div>
+      </div>
+
+      <div class="form-row">
+        <div class="form-group">
+          <label>Teléfono / Celular *</label>
+          <input type="text" id="bPhone" required placeholder="Ej. 310 555 8899">
+        </div>
+        <div class="form-group">
+          <label>Dirección / Barrio / Ciudad</label>
+          <input type="text" id="bAddress" placeholder="Ej. Cra 45 # 12-30, Medellín">
+        </div>
+      </div>
+
+      <div class="form-row">
+        <div class="form-group">
+          <label>Monto a Prestar ($) *</label>
+          <input type="number" id="bAmount" min="1000" step="1000" required oninput="validateLoanAmountPreview()">
+        </div>
+        <div class="form-group">
+          <label>Interés Mensual de este Préstamo (%) *</label>
+          <input type="number" id="bInterestRate" min="0" max="100" step="0.5" required oninput="validateLoanAmountPreview()">
+        </div>
+      </div>
+
+      <div class="form-row">
+        <div class="form-group">
+          <label>Fecha de Desembolso *</label>
+          <input type="date" id="bDate" required>
+        </div>
+        <div class="form-group">
+          <label>Garantía / Observaciones</label>
+          <input type="text" id="bNotes" placeholder="Ej. Letra firmada / Pago mensual">
+        </div>
+      </div>
+
+      <div id="loanValidationMsg" style="font-size:0.82rem; font-weight:600; margin-bottom:0.5rem;"></div>
+
+      <div class="modal-actions">
+        <button type="button" class="btn btn-outline" onclick="closeModal('newLoanModal')">Cancelar</button>
+        <button type="submit" class="btn btn-accent" id="submitLoanBtn">Autorizar y Desembolsar</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- MODAL: DETALLE Y PAGO DE PRÉSTAMO INDIVIDUAL -->
+<div class="modal-backdrop" id="loanManageModal">
+  <div class="modal">
+    <h3 id="lmTitle">Detalle del Préstamo</h3>
+    <div id="lmBorrowerCard" style="background:var(--primary-soft); padding:0.85rem; border-radius:8px; font-size:0.86rem; margin-bottom:1rem; border:1px solid var(--border);"></div>
+
+    <div style="display:flex; gap:0.5rem; align-items:flex-end; margin-bottom:1rem; background:#fdfbff; padding:0.65rem; border-radius:8px; border:1px solid var(--border);">
+      <div style="flex:1;">
+        <label style="font-size:0.78rem; font-weight:700; color:var(--muted); display:block; margin-bottom:0.2rem;">Tasa de interés de este préstamo (% mensual):</label>
+        <input type="number" id="lmEditRateInput" min="0" max="100" step="0.5" style="width:100%;">
+      </div>
+      <button type="button" class="btn btn-outline btn-sm" onclick="updateSingleLoanRate()">Actualizar Tasa</button>
+    </div>
+
+    <form onsubmit="executeLoanPayment(event)">
+      <input type="hidden" id="lmLoanId">
+      <div class="form-group">
+        <label>Registrar Pago</label>
+        <select id="lmActionType" onchange="updateLoanPayHint()">
+          <option value="interest">Cobrar Interés Mensual (Según tasa del préstamo)</option>
+          <option value="principal">Abonar a Capital (Reduce saldo adeudado)</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label id="lmAmountLabel">Monto ($)</label>
+        <input type="number" id="lmPayAmount" min="1" step="any" required>
+        <small id="lmPayHint" style="color:var(--muted); display:block; margin-top:0.3rem;"></small>
+      </div>
+      <div class="form-group">
+        <label>Observación</label>
+        <input type="text" id="lmPayNote" placeholder="Ej. Transferencia recibida">
+      </div>
+      <div class="modal-actions" style="justify-content:space-between;">
+        <button type="button" class="btn btn-danger btn-sm" onclick="deleteLoanRecord()">Eliminar Registro</button>
+        <div style="display:flex; gap:0.5rem;">
+          <button type="button" class="btn btn-outline" onclick="closeModal('loanManageModal')">Cerrar</button>
+          <button type="submit" class="btn btn-accent">Registrar Pago</button>
+        </div>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- MODAL: GESTIONAR NÚMERO OCUPADO -->
+<div class="modal-backdrop" id="numberDetailModal">
+  <div class="modal">
+    <h3 id="numModalTitle">Boleta #00</h3>
+    <p id="numModalInfo" style="margin-bottom:1rem; font-size:0.92rem;"></p>
+    <input type="hidden" id="numModalCode">
+    <div class="modal-actions" style="justify-content:space-between;">
+      <button type="button" class="btn btn-danger" onclick="releaseNumber()">Liberar Número</button>
+      <div style="display:flex; gap:0.5rem;">
+        <button type="button" class="btn btn-outline" onclick="closeModal('numberDetailModal')">Cerrar</button>
+        <button type="button" class="btn btn-accent" id="togglePaidNumberBtn" onclick="toggleNumberPaid()">Marcar Pagada</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL: PAGO RÁPIDO DESDE MIEMBRO -->
+<div class="modal-backdrop" id="actionModal">
+  <div class="modal">
+    <h3 id="actionModalTitle">Registrar Pago de Boletas</h3>
+    <form onsubmit="executeMemberAction(event)">
+      <input type="hidden" id="actMemberId">
+      <div class="form-group">
+        <label>Rifa con Saldo Pendiente</label>
+        <select id="actRaffleId" onchange="updateActionHint()"></select>
+      </div>
+      <div class="form-group">
+        <label>Cantidad de Boletas Pendientes a Pagar</label>
+        <input type="number" id="actAmount" min="1" step="1" required>
+        <small id="actHint" style="color:var(--muted); display:block; margin-top:0.35rem;"></small>
+      </div>
+      <div class="form-group">
+        <label>Nota / Observación (opcional)</label>
+        <input type="text" id="actNote" placeholder="Ej. Transferencia / Efectivo">
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-outline" onclick="closeModal('actionModal')">Cancelar</button>
+        <button type="submit" class="btn btn-accent">Registrar Pago</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script src="/app.js"></script>
+</body>
+</html>
