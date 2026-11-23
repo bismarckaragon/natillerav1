@@ -73,8 +73,8 @@ function syncMemberDropdown() {
   }
 
   sel.innerHTML = `<option value="">-- Selecciona tu nombre --</option>` +
-    publicData.members.map(m =>
-      `<option value="${escapeHtml(m.id)}">${escapeHtml(m.name)}</option>`
+    publicData.members.map((m, idx) =>
+      `<option value="${escapeHtml(m.id)}">${idx + 1}. ${escapeHtml(m.name)}</option>`
     ).join('');
 
   if (currentVal && publicData.members.some(m => m.id === currentVal)) {

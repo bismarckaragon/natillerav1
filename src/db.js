@@ -74,6 +74,18 @@ function initSchema() {
       note TEXT NOT NULL DEFAULT '',
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
+
+    CREATE TABLE IF NOT EXISTS movements (
+      id TEXT PRIMARY KEY,
+      date TEXT NOT NULL,
+      direction TEXT NOT NULL CHECK (direction IN ('in', 'out')),
+      category TEXT NOT NULL DEFAULT 'General',
+      amount REAL NOT NULL,
+      description TEXT NOT NULL,
+      member_id TEXT NOT NULL DEFAULT '',
+      raffle_id TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
   `);
 
   // Initialize clean default settings row if absent (no dummy data)
@@ -97,6 +109,26 @@ function initSchema() {
     const secret = crypto.randomBytes(32).toString('hex');
     db.prepare('UPDATE settings SET session_secret = ? WHERE id = 1').run(secret);
   }
+
+  // Standardize existing member names to Title Case
+  const existingMembers = db.prepare('SELECT id, name FROM members').all();
+  const updName = db.prepare('UPDATE members SET name = ? WHERE id = ?');
+  for (const m of existingMembers) {
+    const normalized = normalizePersonName(m.name);
+    if (normalized && normalized !== m.name) {
+      updName.run(normalized, m.id);
+    }
+  }
+}
+
+function normalizePersonName(raw) {
+  return String(raw || '')
+    .trim()
+    .replace(/\s+/g, ' ')
+    .split(' ')
+    .filter(Boolean)
+    .map(word => word.charAt(0).toLocaleUpperCase('es-CO') + word.slice(1).toLocaleLowerCase('es-CO'))
+    .join(' ');
 }
 
 initSchema();
@@ -133,6 +165,10 @@ function getFullState() {
     FROM loans ORDER BY rowid ASC
   `).all();
   const historyRows = db.prepare('SELECT id, date, member_name, type, amount, note FROM history ORDER BY id ASC').all();
+  const movementsRows = db.prepare(`
+    SELECT id, date, direction, category, amount, description, member_id, raffle_id
+    FROM movements ORDER BY date DESC, rowid DESC
+  `).all();
 
   const picksByRaffle = new Map();
   for (const p of picksRows) {
@@ -185,6 +221,16 @@ function getFullState() {
       type: h.type,
       amount: Number(h.amount),
       note: h.note || ''
+    })),
+    movements: movementsRows.map(mv => ({
+      id: mv.id,
+      date: mv.date,
+      direction: mv.direction,
+      category: mv.category || 'General',
+      amount: Number(mv.amount),
+      description: mv.description,
+      memberId: mv.member_id || '',
+      raffleId: mv.raffle_id || ''
     }))
   };
 }
@@ -206,15 +252,46 @@ function updateSettings(payload) {
 }
 
 function createMember({ name, phone = '' }) {
-  const cleanName = String(name || '').trim();
+  const cleanName = normalizePersonName(name);
   if (!cleanName) {
     const err = new Error('El nombre del miembro es obligatorio.');
     err.status = 400;
     throw err;
   }
+  const existing = db.prepare('SELECT id, name FROM members WHERE LOWER(TRIM(name)) = LOWER(?)').get(cleanName);
+  if (existing) {
+    const err = new Error(`Ya existe un miembro registrado con el nombre "${existing.name}".`);
+    err.status = 409;
+    throw err;
+  }
   const id = 'm_' + Date.now() + '_' + Math.floor(Math.random() * 1000);
-  db.prepare('INSERT INTO members (id, name, phone) VALUES (?, ?, ?)').run(id, cleanName, String(phone || '').trim());
-  return { id, name: cleanName, phone: String(phone || '').trim() };
+  const cleanPhone = String(phone || '').trim();
+  db.prepare('INSERT INTO members (id, name, phone) VALUES (?, ?, ?)').run(id, cleanName, cleanPhone);
+  return { id, name: cleanName, phone: cleanPhone };
+}
+
+function updateMember(id, { name, phone = '' }) {
+  const existing = db.prepare('SELECT id, name FROM members WHERE id = ?').get(id);
+  if (!existing) {
+    const err = new Error('Miembro no encontrado.');
+    err.status = 404;
+    throw err;
+  }
+  const cleanName = normalizePersonName(name);
+  if (!cleanName) {
+    const err = new Error('El nombre del miembro es obligatorio.');
+    err.status = 400;
+    throw err;
+  }
+  const duplicate = db.prepare('SELECT id, name FROM members WHERE LOWER(TRIM(name)) = LOWER(?) AND id != ?').get(cleanName, id);
+  if (duplicate) {
+    const err = new Error(`Ya existe otro miembro con el nombre "${duplicate.name}".`);
+    err.status = 409;
+    throw err;
+  }
+  const cleanPhone = String(phone || '').trim();
+  db.prepare('UPDATE members SET name = ?, phone = ? WHERE id = ?').run(cleanName, cleanPhone, id);
+  return { id, name: cleanName, phone: cleanPhone };
 }
 
 const deleteMember = db.transaction((id) => {
@@ -271,6 +348,23 @@ const closeRaffle = db.transaction((id) => {
     collected,
     `Recaudado: ${formatMoney(collected)} | Pendiente: ${formatMoney(pendingMoney)}`
   );
+});
+
+const updateRaffle = db.transaction((id, { name, price }) => {
+  const raffle = db.prepare('SELECT * FROM raffles WHERE id = ?').get(id);
+  if (!raffle) {
+    const err = new Error('Rifa no encontrada.');
+    err.status = 404;
+    throw err;
+  }
+  const cleanName = String(name || '').trim();
+  const numPrice = Number(price) || 0;
+  if (!cleanName || numPrice <= 0) {
+    const err = new Error('Nombre y precio válido son obligatorios.');
+    err.status = 400;
+    throw err;
+  }
+  db.prepare('UPDATE raffles SET name = ?, price = ? WHERE id = ?').run(cleanName, numPrice, id);
 });
 
 const deleteRaffle = db.transaction((id) => {
@@ -357,6 +451,36 @@ const togglePickPaid = db.transaction((raffleId, code) => {
   }
 });
 
+const updatePick = db.transaction((raffleId, code, { memberId, paid }) => {
+  const raffle = db.prepare('SELECT * FROM raffles WHERE id = ?').get(raffleId);
+  const pick = db.prepare('SELECT * FROM raffle_picks WHERE raffle_id = ? AND number_code = ?').get(raffleId, code);
+  if (!raffle || !pick) {
+    const err = new Error('Boleta no encontrada.');
+    err.status = 404;
+    throw err;
+  }
+  const nextMemberId = memberId ? String(memberId) : pick.member_id;
+  const member = db.prepare('SELECT id, name FROM members WHERE id = ?').get(nextMemberId);
+  if (!member) {
+    const err = new Error('El miembro seleccionado no existe.');
+    err.status = 400;
+    throw err;
+  }
+  const nextPaid = paid !== undefined ? (paid ? 1 : 0) : pick.paid;
+  db.prepare('UPDATE raffle_picks SET member_id = ?, paid = ? WHERE raffle_id = ? AND number_code = ?')
+    .run(member.id, nextPaid, raffleId, code);
+
+  if (nextPaid === 1 && pick.paid === 0) {
+    addHistory(
+      todayCO(),
+      member.name,
+      `Pago Boleta #${code} (${raffle.name})`,
+      Number(raffle.price),
+      'Actualizada desde talonario'
+    );
+  }
+});
+
 const releasePick = db.transaction((raffleId, code) => {
   const raffle = db.prepare("SELECT id FROM raffles WHERE id = ? AND status = 'active'").get(raffleId);
   if (!raffle) {
@@ -414,7 +538,7 @@ const createLoan = db.transaction((payload) => {
   }
 
   const borrowerType = payload.borrowerType === 'external' ? 'external' : 'member';
-  const borrowerName = String(payload.borrowerName || '').trim();
+  const borrowerName = normalizePersonName(payload.borrowerName);
   const borrowerDoc = String(payload.borrowerDoc || '').trim();
   const borrowerPhone = String(payload.borrowerPhone || '').trim();
   const borrowerAddress = String(payload.borrowerAddress || '').trim();
@@ -510,6 +634,153 @@ function deleteLoan(loanId) {
   db.prepare('DELETE FROM loans WHERE id = ?').run(loanId);
 }
 
+const updateLoan = db.transaction((loanId, payload) => {
+  const existing = db.prepare('SELECT * FROM loans WHERE id = ?').get(loanId);
+  if (!existing) {
+    const err = new Error('Préstamo no encontrado.');
+    err.status = 404;
+    throw err;
+  }
+
+  const sponsor = db.prepare('SELECT id, name FROM members WHERE id = ?').get(payload.sponsorMemberId || existing.sponsor_member_id);
+  if (!sponsor) {
+    const err = new Error('El miembro responsable no existe.');
+    err.status = 400;
+    throw err;
+  }
+
+  const borrowerType = payload.borrowerType === 'external' ? 'external' : 'member';
+  const borrowerName = normalizePersonName(payload.borrowerName);
+  const borrowerDoc = String(payload.borrowerDoc || '').trim();
+  const borrowerPhone = String(payload.borrowerPhone || '').trim();
+  const borrowerAddress = String(payload.borrowerAddress || '').trim();
+  const initialAmount = Number(payload.initialAmount ?? payload.amount) || 0;
+  const balance = payload.balance !== undefined && payload.balance !== '' ? Math.max(0, Number(payload.balance)) : Number(existing.balance);
+  const interestRate = Number(payload.interestRate);
+  const date = String(payload.date || existing.date);
+  const notes = String(payload.notes || '').trim();
+
+  if (!borrowerName || initialAmount <= 0 || Number.isNaN(balance) || Number.isNaN(interestRate) || interestRate < 0) {
+    const err = new Error('Completa todos los campos obligatorios del préstamo.');
+    err.status = 400;
+    throw err;
+  }
+
+  db.prepare(`
+    UPDATE loans
+    SET sponsor_member_id = ?, borrower_type = ?, borrower_name = ?, borrower_doc = ?,
+        borrower_phone = ?, borrower_address = ?, initial_amount = ?, balance = ?,
+        interest_rate = ?, date = ?, notes = ?
+    WHERE id = ?
+  `).run(
+    sponsor.id, borrowerType, borrowerName, borrowerDoc,
+    borrowerPhone, borrowerAddress, initialAmount, balance,
+    interestRate, date, notes, loanId
+  );
+});
+
+const createMovement = db.transaction((payload) => {
+  const direction = payload.direction === 'out' ? 'out' : (payload.direction === 'in' ? 'in' : null);
+  const amount = Number(payload.amount) || 0;
+  const description = String(payload.description || '').trim();
+  const category = String(payload.category || 'General').trim() || 'General';
+  const date = String(payload.date || new Date().toISOString().slice(0, 10));
+  const memberId = String(payload.memberId || '').trim();
+  const raffleId = String(payload.raffleId || '').trim();
+
+  if (!direction) {
+    const err = new Error('Selecciona si el movimiento es un Ingreso o una Salida.');
+    err.status = 400;
+    throw err;
+  }
+  if (amount <= 0) {
+    const err = new Error('El monto del movimiento debe ser mayor a 0.');
+    err.status = 400;
+    throw err;
+  }
+  if (!description) {
+    const err = new Error('La descripción del movimiento es obligatoria.');
+    err.status = 400;
+    throw err;
+  }
+
+  const id = 'mv_' + Date.now() + '_' + Math.floor(Math.random() * 1000);
+  db.prepare(`
+    INSERT INTO movements (id, date, direction, category, amount, description, member_id, raffle_id)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(id, date, direction, category, amount, description, memberId, raffleId);
+
+  const actorName = memberId ? getMemberName(memberId) : 'Fondo / Administrador';
+  const opLabel = direction === 'in' ? `Ingreso (${category})` : `Salida / Egreso (${category})`;
+  addHistory(date, actorName, opLabel, direction === 'in' ? amount : -amount, description);
+
+  return id;
+});
+
+const updateMovement = db.transaction((id, payload) => {
+  const existing = db.prepare('SELECT * FROM movements WHERE id = ?').get(id);
+  if (!existing) {
+    const err = new Error('Movimiento no encontrado.');
+    err.status = 404;
+    throw err;
+  }
+
+  const direction = payload.direction === 'out' ? 'out' : (payload.direction === 'in' ? 'in' : null);
+  const amount = Number(payload.amount) || 0;
+  const description = String(payload.description || '').trim();
+  const category = String(payload.category || 'General').trim() || 'General';
+  const date = String(payload.date || existing.date);
+  const memberId = String(payload.memberId || '').trim();
+  const raffleId = String(payload.raffleId || '').trim();
+
+  if (!direction || amount <= 0 || !description) {
+    const err = new Error('Completa tipo, monto válido y descripción del movimiento.');
+    err.status = 400;
+    throw err;
+  }
+
+  db.prepare(`
+    UPDATE movements
+    SET date = ?, direction = ?, category = ?, amount = ?, description = ?, member_id = ?, raffle_id = ?
+    WHERE id = ?
+  `).run(date, direction, category, amount, description, memberId, raffleId, id);
+});
+
+function deleteMovement(id) {
+  const info = db.prepare('DELETE FROM movements WHERE id = ?').run(id);
+  if (info.changes === 0) {
+    const err = new Error('Movimiento no encontrado.');
+    err.status = 404;
+    throw err;
+  }
+}
+
+function updateHistoryEntry(id, payload) {
+  const existing = db.prepare('SELECT * FROM history WHERE id = ?').get(id);
+  if (!existing) {
+    const err = new Error('Registro de historial no encontrado.');
+    err.status = 404;
+    throw err;
+  }
+  const date = String(payload.date || existing.date).trim();
+  const memberName = String(payload.memberName || existing.member_name).trim();
+  const type = String(payload.type || existing.type).trim();
+  const amount = Number(payload.amount ?? existing.amount);
+  const note = String(payload.note ?? existing.note).trim();
+
+  if (!date || !memberName || !type || Number.isNaN(amount)) {
+    const err = new Error('Datos inválidos para actualizar el registro de historial.');
+    err.status = 400;
+    throw err;
+  }
+  db.prepare('UPDATE history SET date = ?, member_name = ?, type = ?, amount = ?, note = ? WHERE id = ?')
+    .run(date, memberName, type, amount, note, id);
+}
+
+function deleteHistoryEntry(id) {
+  db.prepare('DELETE FROM history WHERE id = ?').run(id);
+}
+
 function clearHistory() {
   db.prepare('DELETE FROM history').run();
 }
@@ -525,6 +796,7 @@ const importBackup = db.transaction((data) => {
   db.prepare('DELETE FROM raffles').run();
   db.prepare('DELETE FROM loans').run();
   db.prepare('DELETE FROM history').run();
+  db.prepare('DELETE FROM movements').run();
   db.prepare('DELETE FROM members').run();
 
   const s = data.settings || {};
@@ -542,7 +814,7 @@ const importBackup = db.transaction((data) => {
   const insertMember = db.prepare('INSERT INTO members (id, name, phone) VALUES (?, ?, ?)');
   for (const m of (Array.isArray(data.members) ? data.members : [])) {
     if (!m || !m.id || !m.name) continue;
-    insertMember.run(String(m.id), String(m.name), String(m.phone || ''));
+    insertMember.run(String(m.id), normalizePersonName(m.name), String(m.phone || ''));
   }
 
   let foundActive = false;
@@ -601,6 +873,25 @@ const importBackup = db.transaction((data) => {
       String(h.type || ''),
       Number(h.amount) || 0,
       String(h.note || '')
+    );
+  }
+
+  const insertMovement = db.prepare(`
+    INSERT INTO movements (id, date, direction, category, amount, description, member_id, raffle_id)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+  for (const mv of (Array.isArray(data.movements) ? data.movements : [])) {
+    if (!mv || !mv.id || !mv.description) continue;
+    const dir = mv.direction === 'out' ? 'out' : 'in';
+    insertMovement.run(
+      String(mv.id),
+      String(mv.date || todayCO()),
+      dir,
+      String(mv.category || 'General'),
+      Math.abs(Number(mv.amount) || 0),
+      String(mv.description),
+      String(mv.memberId || ''),
+      String(mv.raffleId || '')
     );
   }
 });
@@ -695,7 +986,7 @@ function getPublicRaffleState() {
 }
 
 const createPublicMember = db.transaction(({ name, phone = '' }) => {
-  const cleanName = String(name || '').trim();
+  const cleanName = normalizePersonName(name);
   const cleanPhone = String(phone || '').trim();
   if (!cleanName || cleanName.length < 2) {
     const err = new Error('Por favor ingresa tu nombre completo.');
@@ -746,21 +1037,31 @@ function closeDb() {
 module.exports = {
   DB_PATH,
   db,
+  normalizePersonName,
   getFullState,
   updateSettings,
   createMember,
+  updateMember,
   deleteMember,
   createRaffle,
+  updateRaffle,
   closeRaffle,
   deleteRaffle,
   assignPicks,
   togglePickPaid,
+  updatePick,
   releasePick,
   payMemberTickets,
   createLoan,
+  updateLoan,
   updateLoanRate,
   recordLoanPayment,
   deleteLoan,
+  createMovement,
+  updateMovement,
+  deleteMovement,
+  updateHistoryEntry,
+  deleteHistoryEntry,
   clearHistory,
   importBackup,
   getAuthInfo,

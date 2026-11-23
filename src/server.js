@@ -201,6 +201,11 @@ app.post('/api/members', requireAdmin, handle((req) => {
   return store.getFullState();
 }));
 
+app.put('/api/members/:id', requireAdmin, handle((req) => {
+  store.updateMember(req.params.id, req.body || {});
+  return store.getFullState();
+}));
+
 app.delete('/api/members/:id', requireAdmin, handle((req) => {
   store.deleteMember(req.params.id);
   return store.getFullState();
@@ -213,6 +218,11 @@ app.post('/api/members/:id/pay-tickets', requireAdmin, handle((req) => {
 
 app.post('/api/raffles', requireAdmin, handle((req) => {
   store.createRaffle(req.body || {});
+  return store.getFullState();
+}));
+
+app.put('/api/raffles/:id', requireAdmin, handle((req) => {
+  store.updateRaffle(req.params.id, req.body || {});
   return store.getFullState();
 }));
 
@@ -236,6 +246,11 @@ app.patch('/api/raffles/:id/picks/:code', requireAdmin, handle((req) => {
   return store.getFullState();
 }));
 
+app.put('/api/raffles/:id/picks/:code', requireAdmin, handle((req) => {
+  store.updatePick(req.params.id, req.params.code, req.body || {});
+  return store.getFullState();
+}));
+
 app.delete('/api/raffles/:id/picks/:code', requireAdmin, handle((req) => {
   store.releasePick(req.params.id, req.params.code);
   return store.getFullState();
@@ -243,6 +258,11 @@ app.delete('/api/raffles/:id/picks/:code', requireAdmin, handle((req) => {
 
 app.post('/api/loans', requireAdmin, handle((req) => {
   store.createLoan(req.body || {});
+  return store.getFullState();
+}));
+
+app.put('/api/loans/:id', requireAdmin, handle((req) => {
+  store.updateLoan(req.params.id, req.body || {});
   return store.getFullState();
 }));
 
@@ -258,6 +278,31 @@ app.post('/api/loans/:id/payments', requireAdmin, handle((req) => {
 
 app.delete('/api/loans/:id', requireAdmin, handle((req) => {
   store.deleteLoan(req.params.id);
+  return store.getFullState();
+}));
+
+app.post('/api/movements', requireAdmin, handle((req) => {
+  store.createMovement(req.body || {});
+  return store.getFullState();
+}));
+
+app.put('/api/movements/:id', requireAdmin, handle((req) => {
+  store.updateMovement(req.params.id, req.body || {});
+  return store.getFullState();
+}));
+
+app.delete('/api/movements/:id', requireAdmin, handle((req) => {
+  store.deleteMovement(req.params.id);
+  return store.getFullState();
+}));
+
+app.put('/api/history/:id', requireAdmin, handle((req) => {
+  store.updateHistoryEntry(Number(req.params.id), req.body || {});
+  return store.getFullState();
+}));
+
+app.delete('/api/history/:id', requireAdmin, handle((req) => {
+  store.deleteHistoryEntry(Number(req.params.id));
   return store.getFullState();
 }));
 

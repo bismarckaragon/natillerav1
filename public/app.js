@@ -8,7 +8,8 @@ let state = {
   raffles: [],
   members: [],
   loans: [],
-  history: []
+  history: [],
+  movements: []
 };
 
 let tempSelectedNumbers = new Set();
@@ -294,8 +295,17 @@ function computeFinancials() {
   });
 
   const baseCash = Number(state.settings.baseCash || 0);
-  const totalCapital = baseCash + totalRaffleCollected + totalInterestPaid;
-  const maxLoanAllowedFromCapital = totalCapital * ((state.settings.maxLoanRatio || 80) / 100);
+  let totalMovementsIn = 0;
+  let totalMovementsOut = 0;
+  (state.movements || []).forEach(mv => {
+    const amt = Number(mv.amount || 0);
+    if (mv.direction === 'out') totalMovementsOut += amt;
+    else totalMovementsIn += amt;
+  });
+  const netMovements = totalMovementsIn - totalMovementsOut;
+
+  const totalCapital = baseCash + totalRaffleCollected + totalInterestPaid + netMovements;
+  const maxLoanAllowedFromCapital = Math.max(0, totalCapital) * ((state.settings.maxLoanRatio || 80) / 100);
   const availableCapitalForLoans = Math.max(0, maxLoanAllowedFromCapital - activeLoanBalance);
   const unallocatedCapital = totalCapital - activeLoanBalance;
 
@@ -303,6 +313,9 @@ function computeFinancials() {
     baseCash,
     totalRaffleCollected,
     totalRafflePending,
+    totalMovementsIn,
+    totalMovementsOut,
+    netMovements,
     activeLoanBalance,
     totalInterestPaid,
     monthlyInterestExpected,
@@ -427,14 +440,15 @@ function renderAll() {
     `;
   }
 
-  // 3. Consolidado por Miembro Responsable
+  // 3. Consolidado por Miembro Responsable (enumerado)
   document.getElementById('summaryAlertsBody').innerHTML = state.members.length
-    ? state.members.map(m => {
+    ? state.members.map((m, idx) => {
       const rStats = getMemberRaffleStats(m.id);
       const lStats = getMemberLoanStats(m.id);
       const totalDue = rStats.pendingMoney + lStats.activeBalance + lStats.monthlyInterest;
       return `
         <tr>
+          <td class="font-bold" style="color:var(--muted);">${idx + 1}</td>
           <td class="font-bold">${escapeHtml(m.name)}</td>
           <td class="text-right">${formatMoney(rStats.pendingMoney)}</td>
           <td class="text-right">${formatMoney(lStats.activeBalance)} <small style="color:var(--muted)">(${lStats.count} act.)</small></td>
@@ -443,14 +457,20 @@ function renderAll() {
         </tr>
       `;
     }).join('')
-    : `<tr><td colspan="5" class="empty-row">No hay miembros registrados aún. Agrégalos en la pestaña "Registro por Miembro".</td></tr>`;
+    : `<tr><td colspan="6" class="empty-row">No hay miembros registrados aún. Agrégalos en la pestaña "Registro por Miembro".</td></tr>`;
 
-  // 4. Tabla Detallada de Miembros
+  // 4. Tabla Detallada de Miembros (enumerada conservando índice real)
+  const titleEl = document.getElementById('membersSectionTitle');
+  if (titleEl) {
+    titleEl.textContent = `Registro Detallado por Miembro (${state.members.length})`;
+  }
   const query = (document.getElementById('searchMember')?.value || '').toLowerCase();
-  const filtered = state.members.filter(m => m.name.toLowerCase().includes(query));
+  const indexedMembers = state.members
+    .map((m, idx) => ({ ...m, memberNumber: idx + 1 }))
+    .filter(m => m.name.toLowerCase().includes(query) || String(m.memberNumber) === query.trim());
 
-  document.getElementById('membersTableBody').innerHTML = filtered.length
-    ? filtered.map(m => {
+  document.getElementById('membersTableBody').innerHTML = indexedMembers.length
+    ? indexedMembers.map(m => {
       const rStats = getMemberRaffleStats(m.id);
       const lStats = getMemberLoanStats(m.id);
 
@@ -484,6 +504,7 @@ function renderAll() {
 
       return `
         <tr>
+          <td class="font-bold" style="color:var(--primary);">${m.memberNumber}</td>
           <td>
             <div class="font-bold">${escapeHtml(m.name)}</div>
             <small style="color:var(--muted)">${escapeHtml(m.phone || '')}</small>
@@ -498,14 +519,15 @@ function renderAll() {
           <td>
             <div style="display:flex; gap:0.35rem; flex-wrap:wrap;">
               <button class="btn btn-accent btn-sm" onclick="openActionModal('${escapeHtml(m.id)}')">Pagar Boletas</button>
+              <button class="btn btn-outline btn-sm" onclick="openEditMemberModal('${escapeHtml(m.id)}')">Editar</button>
               <button class="btn btn-outline btn-sm" onclick="copyMemberRaffleLink('${escapeHtml(m.id)}', '${escapeHtml(m.name)}')" title="Copiar enlace directo a la rifa con este miembro preseleccionado">🔗 Link Rifa</button>
-              <button class="btn btn-outline btn-sm" onclick="deleteMember('${escapeHtml(m.id)}')">Eliminar</button>
+              <button class="btn btn-danger btn-sm" onclick="deleteMember('${escapeHtml(m.id)}')">Eliminar</button>
             </div>
           </td>
         </tr>
       `;
     }).join('')
-    : `<tr><td colspan="7" class="empty-row">${state.members.length ? 'No se encontraron miembros con ese criterio.' : 'No hay miembros registrados aún. Haz clic en "+ Nuevo Miembro" para comenzar.'}</td></tr>`;
+    : `<tr><td colspan="8" class="empty-row">${state.members.length ? 'No se encontraron miembros con ese criterio.' : 'No hay miembros registrados aún. Haz clic en "+ Nuevo Miembro" para comenzar.'}</td></tr>`;
 
   // 5. SECCIÓN 4: CONTROL DE PRÉSTAMOS Y CAPITAL
   renderLoansSection(fin);
@@ -518,8 +540,8 @@ function renderAll() {
         ? `<span class="badge badge-ok">Activa en Curso</span>`
         : `<span class="badge badge-closed">Cerrada ${r.closedAt ? '(' + escapeHtml(r.closedAt) + ')' : ''}</span>`;
       const actionBtn = isAct
-        ? `<button class="btn btn-warn btn-sm" onclick="closeActiveRaffle('${escapeHtml(r.id)}')">Cerrar / Terminar Rifa</button>`
-        : `<button class="btn btn-danger btn-sm" onclick="deleteRaffle('${escapeHtml(r.id)}')">Eliminar Historial</button>`;
+        ? `<button class="btn btn-warn btn-sm" onclick="closeActiveRaffle('${escapeHtml(r.id)}')">Cerrar Rifa</button>`
+        : `<button class="btn btn-danger btn-sm" onclick="deleteRaffle('${escapeHtml(r.id)}')">Eliminar</button>`;
 
       return `
         <tr>
@@ -530,24 +552,38 @@ function renderAll() {
           <td class="text-right">${r.paid}</td>
           <td class="text-right font-bold" style="color:var(--status-green-text)">${formatMoney(r.collected)}</td>
           <td class="text-right font-bold" style="color:${r.pending > 0 ? 'var(--status-orange-text)' : 'var(--muted)'}">${formatMoney(r.pending)}</td>
-          <td>${actionBtn}</td>
+          <td>
+            <div style="display:flex; gap:0.35rem; flex-wrap:wrap;">
+              <button class="btn btn-outline btn-sm" onclick="openEditRaffleModal('${escapeHtml(r.id)}')">Editar</button>
+              ${actionBtn}
+            </div>
+          </td>
         </tr>
       `;
     }).join('')
     : `<tr><td colspan="8" class="empty-row">No hay rifas registradas aún. Crea tu primera rifa para habilitar el talonario.</td></tr>`;
 
-  // 7. Historial
+  // 7. SECCIÓN 6: INGRESOS Y EGRESOS (MOVIMIENTOS DE CAJA)
+  renderMovementsSection(fin);
+
+  // 8. Historial (con CRUD individual)
   document.getElementById('historyTableBody').innerHTML = state.history.length
     ? state.history.slice().reverse().map(h => `
       <tr>
         <td>${escapeHtml(h.date)}</td>
         <td class="font-bold">${escapeHtml(h.memberName)}</td>
         <td>${escapeHtml(h.type)}</td>
-        <td class="text-right font-bold">${formatMoney(h.amount)}</td>
+        <td class="text-right font-bold" style="color:${h.amount < 0 ? 'var(--status-red-text)' : 'inherit'}">${formatMoney(h.amount)}</td>
         <td>${escapeHtml(h.note || '-')}</td>
+        <td>
+          <div style="display:flex; gap:0.3rem; flex-wrap:wrap;">
+            <button class="btn btn-outline btn-sm" onclick="openEditHistoryModal(${h.id})">Editar</button>
+            <button class="btn btn-danger btn-sm" onclick="deleteHistoryEntry(${h.id})">Eliminar</button>
+          </div>
+        </td>
       </tr>
     `).join('')
-    : `<tr><td colspan="5" class="empty-row">No hay movimientos registrados aún.</td></tr>`;
+    : `<tr><td colspan="6" class="empty-row">No hay movimientos registrados aún.</td></tr>`;
 
   syncBoardSelectors();
   renderBoard();
@@ -559,25 +595,53 @@ function tryOpenNewRaffleModal() {
   if (active) {
     return alert(`Ya existe una rifa activa ("${active.name}").\n\nDebes cerrar o terminar la rifa actual antes de poder crear una nueva.`);
   }
+  document.getElementById('rEditId').value = '';
+  document.getElementById('rName').value = '';
+  document.getElementById('rPrice').value = '';
+  document.getElementById('raffleModalTitle').textContent = 'Crear Nueva Rifa Activa (Números 00 al 99)';
+  document.getElementById('raffleModalHint').style.display = 'block';
+  document.getElementById('raffleSubmitBtn').textContent = 'Iniciar Rifa Activa';
   openModal('raffleModal');
 }
 
-async function saveNewRaffle(e) {
+function openEditRaffleModal(id) {
+  const raffle = state.raffles.find(r => r.id === id);
+  if (!raffle) return;
+  document.getElementById('rEditId').value = raffle.id;
+  document.getElementById('rName').value = raffle.name;
+  document.getElementById('rPrice').value = raffle.price;
+  document.getElementById('raffleModalTitle').textContent = 'Editar Rifa';
+  document.getElementById('raffleModalHint').style.display = 'none';
+  document.getElementById('raffleSubmitBtn').textContent = 'Guardar Cambios';
+  openModal('raffleModal');
+}
+
+async function saveRaffleForm(e) {
   e.preventDefault();
-  if (getActiveRaffle()) {
-    closeModal('raffleModal');
-    return alert('Ya hay una rifa activa en curso. Ciérrala primero.');
-  }
+  const editId = document.getElementById('rEditId').value;
   const name = document.getElementById('rName').value.trim();
   const price = parseFloat(document.getElementById('rPrice').value) || 0;
   if (!name || price <= 0) return;
 
   try {
-    const data = await apiRequest('/api/raffles', {
-      method: 'POST',
-      body: JSON.stringify({ name, price })
-    });
-    tempSelectedNumbers.clear();
+    let data;
+    if (editId) {
+      data = await apiRequest(`/api/raffles/${encodeURIComponent(editId)}`, {
+        method: 'PUT',
+        body: JSON.stringify({ name, price })
+      });
+      showToast('Rifa actualizada.');
+    } else {
+      if (getActiveRaffle()) {
+        closeModal('raffleModal');
+        return alert('Ya hay una rifa activa en curso. Ciérrala primero.');
+      }
+      data = await apiRequest('/api/raffles', {
+        method: 'POST',
+        body: JSON.stringify({ name, price })
+      });
+      tempSelectedNumbers.clear();
+    }
     e.target.reset();
     closeModal('raffleModal');
     applyState(data);
@@ -636,8 +700,8 @@ function syncBoardSelectors() {
     mSel.innerHTML = `<option value="">-- Primero registra un miembro --</option>`;
     return;
   }
-  mSel.innerHTML = state.members.map(m =>
-    `<option value="${escapeHtml(m.id)}">${escapeHtml(m.name)}</option>`
+  mSel.innerHTML = state.members.map((m, idx) =>
+    `<option value="${escapeHtml(m.id)}">${idx + 1}. ${escapeHtml(m.name)}</option>`
   ).join('');
   if (state.members.some(m => m.id === prevM)) mSel.value = prevM;
 }
@@ -865,25 +929,36 @@ function openNumberDetail(code) {
   document.getElementById('numModalCode').value = code;
   document.getElementById('numModalTitle').textContent = `Boleta #${code} — ${raffle.name}`;
   document.getElementById('numModalInfo').innerHTML = `
-    <strong>Responsable:</strong> ${escapeHtml(ownerName)}<br>
-    <strong>Valor Boleta:</strong> ${formatMoney(raffle.price)}<br>
-    <strong>Estado actual:</strong> ${pick.paid ? '<span class="badge badge-ok">Pagada</span>' : '<span class="badge badge-pending">Pendiente de Pago</span>'}
+    <strong>Valor Boleta:</strong> ${formatMoney(raffle.price)} &nbsp;|&nbsp;
+    <strong>Responsable actual:</strong> ${escapeHtml(ownerName)}
   `;
-  document.getElementById('togglePaidNumberBtn').textContent = pick.paid ? 'Marcar como Pendiente' : 'Marcar como Pagada';
+
+  const memberSel = document.getElementById('numModalMemberId');
+  memberSel.innerHTML = state.members.map((m, idx) =>
+    `<option value="${escapeHtml(m.id)}">${idx + 1}. ${escapeHtml(m.name)}</option>`
+  ).join('');
+  memberSel.value = pick.memberId;
+
+  document.getElementById('numModalPaid').value = pick.paid ? '1' : '0';
   openModal('numberDetailModal');
 }
 
-async function toggleNumberPaid() {
+async function saveNumberDetail(e) {
+  e.preventDefault();
   const raffle = getActiveRaffle();
   const code = document.getElementById('numModalCode').value;
-  if (!raffle || !raffle.picks[code]) return;
+  const memberId = document.getElementById('numModalMemberId').value;
+  const paid = document.getElementById('numModalPaid').value === '1';
+  if (!raffle || !raffle.picks[code] || !memberId) return;
 
   try {
     const data = await apiRequest(`/api/raffles/${encodeURIComponent(raffle.id)}/picks/${encodeURIComponent(code)}`, {
-      method: 'PATCH'
+      method: 'PUT',
+      body: JSON.stringify({ memberId, paid })
     });
     closeModal('numberDetailModal');
     applyState(data);
+    showToast(`Boleta #${code} actualizada.`);
   } catch (err) {
     alert(err.message);
   }
@@ -931,7 +1006,7 @@ function renderLoansSection(fin) {
     <div class="kpi-card mint">
       <div class="kpi-title">Capital Total del Fondo</div>
       <div class="kpi-value" style="color:var(--primary)">${formatMoney(fin.totalCapital)}</div>
-      <div class="kpi-sub">Base (${formatMoney(fin.baseCash)}) + Rifas + Intereses</div>
+      <div class="kpi-sub">Base (${formatMoney(fin.baseCash)}) + Rifas + Int. + Mov. (${fin.netMovements >= 0 ? '+' : ''}${formatMoney(fin.netMovements)})</div>
     </div>
     <div class="kpi-card sky">
       <div class="kpi-title">Disponible del Capital p/ Prestar</div>
@@ -987,7 +1062,10 @@ function renderLoansSection(fin) {
           <td class="text-right font-bold">${formatMoney(monthlyInt)}</td>
           <td class="text-right">${formatMoney(l.interestPaid)}</td>
           <td>
-            <button class="btn btn-accent btn-sm" onclick="openLoanManageModal('${escapeHtml(l.id)}')">Gestionar / Pagar</button>
+            <div style="display:flex; gap:0.35rem; flex-wrap:wrap;">
+              <button class="btn btn-accent btn-sm" onclick="openLoanManageModal('${escapeHtml(l.id)}')">Gestionar / Pagar</button>
+              <button class="btn btn-outline btn-sm" onclick="openEditLoanModal('${escapeHtml(l.id)}')">Editar</button>
+            </div>
           </td>
         </tr>
       `;
@@ -995,13 +1073,19 @@ function renderLoansSection(fin) {
     : `<tr><td colspan="10" class="empty-row">No hay préstamos registrados en este filtro.</td></tr>`;
 }
 
-// --- FORMULARIO DE NUEVO PRÉSTAMO ---
+// --- FORMULARIO DE NUEVO / EDITAR PRÉSTAMO ---
 function openNewLoanModal() {
   if (state.members.length === 0) return alert('Primero debes registrar al menos un miembro responsable.');
   const fin = computeFinancials();
 
+  document.getElementById('loanEditId').value = '';
+  document.getElementById('loanModalTitle').textContent = 'Formulario de Desembolso de Préstamo';
+  document.getElementById('submitLoanBtn').textContent = 'Autorizar y Desembolsar';
+  document.getElementById('bBalanceGroup').style.display = 'none';
+  document.getElementById('bBalance').required = false;
+
   const sponsorSel = document.getElementById('loanSponsorId');
-  sponsorSel.innerHTML = state.members.map(m => `<option value="${escapeHtml(m.id)}">${escapeHtml(m.name)}</option>`).join('');
+  sponsorSel.innerHTML = state.members.map((m, idx) => `<option value="${escapeHtml(m.id)}">${idx + 1}. ${escapeHtml(m.name)}</option>`).join('');
 
   document.getElementById('loanBorrowerType').value = 'member';
   document.getElementById('bDate').value = new Date().toISOString().slice(0, 10);
@@ -1011,6 +1095,7 @@ function openNewLoanModal() {
   document.getElementById('loanValidationMsg').textContent = '';
 
   const banner = document.getElementById('loanLimitBanner');
+  banner.style.display = 'block';
   const topeText = state.settings.maxSingleLoan > 0 ? ` | Tope por préstamo: ${formatMoney(state.settings.maxSingleLoan)}` : '';
   banner.className = fin.availableCapitalForLoans > 0 ? 'alert-box alert-ok' : 'alert-box alert-err';
   banner.textContent = `Capital Total: ${formatMoney(fin.totalCapital)} | Cupo disponible para prestar (${state.settings.maxLoanRatio}%): ${formatMoney(fin.availableCapitalForLoans)}${topeText}`;
@@ -1019,7 +1104,38 @@ function openNewLoanModal() {
   openModal('newLoanModal');
 }
 
+function openEditLoanModal(loanId) {
+  const loan = state.loans.find(l => l.id === loanId);
+  if (!loan) return;
+
+  document.getElementById('loanEditId').value = loan.id;
+  document.getElementById('loanModalTitle').textContent = `Editar Préstamo: ${loan.borrowerName}`;
+  document.getElementById('submitLoanBtn').textContent = 'Guardar Cambios';
+  document.getElementById('loanLimitBanner').style.display = 'none';
+  document.getElementById('loanValidationMsg').textContent = '';
+
+  const sponsorSel = document.getElementById('loanSponsorId');
+  sponsorSel.innerHTML = state.members.map((m, idx) => `<option value="${escapeHtml(m.id)}">${idx + 1}. ${escapeHtml(m.name)}</option>`).join('');
+  sponsorSel.value = loan.sponsorMemberId;
+
+  document.getElementById('loanBorrowerType').value = loan.borrowerType;
+  document.getElementById('bFullName').value = loan.borrowerName;
+  document.getElementById('bDocument').value = loan.borrowerDoc || '';
+  document.getElementById('bPhone').value = loan.borrowerPhone || '';
+  document.getElementById('bAddress').value = loan.borrowerAddress || '';
+  document.getElementById('bAmount').value = loan.initialAmount;
+  document.getElementById('bInterestRate').value = loan.interestRate;
+  document.getElementById('bBalanceGroup').style.display = 'block';
+  document.getElementById('bBalance').required = true;
+  document.getElementById('bBalance').value = loan.balance;
+  document.getElementById('bDate').value = loan.date;
+  document.getElementById('bNotes').value = loan.notes || '';
+
+  openModal('newLoanModal');
+}
+
 function onBorrowerTypeChange() {
+  if (document.getElementById('loanEditId').value) return;
   const type = document.getElementById('loanBorrowerType').value;
   const sponsorId = document.getElementById('loanSponsorId').value;
   const sponsor = state.members.find(m => m.id === sponsorId);
@@ -1070,11 +1186,14 @@ function validateLoanAmountPreview() {
   return true;
 }
 
-async function saveNewLoan(e) {
+async function saveLoanForm(e) {
   e.preventDefault();
-  const isValid = validateLoanAmountPreview();
-  if (!isValid && !confirm('El monto supera los límites configurados del Capital Total. ¿Deseas autorizarlo de todas formas?')) {
-    return;
+  const editId = document.getElementById('loanEditId').value;
+  if (!editId) {
+    const isValid = validateLoanAmountPreview();
+    if (!isValid && !confirm('El monto supera los límites configurados del Capital Total. ¿Deseas autorizarlo de todas formas?')) {
+      return;
+    }
   }
 
   const sponsorMemberId = document.getElementById('loanSponsorId').value;
@@ -1091,21 +1210,43 @@ async function saveNewLoan(e) {
   if (!sponsorMemberId || !borrowerName || amount <= 0 || isNaN(interestRate)) return;
 
   try {
-    const data = await apiRequest('/api/loans', {
-      method: 'POST',
-      body: JSON.stringify({
-        sponsorMemberId,
-        borrowerType,
-        borrowerName,
-        borrowerDoc,
-        borrowerPhone,
-        borrowerAddress,
-        amount,
-        interestRate,
-        date,
-        notes
-      })
-    });
+    let data;
+    if (editId) {
+      const balance = parseFloat(document.getElementById('bBalance').value);
+      data = await apiRequest(`/api/loans/${encodeURIComponent(editId)}`, {
+        method: 'PUT',
+        body: JSON.stringify({
+          sponsorMemberId,
+          borrowerType,
+          borrowerName,
+          borrowerDoc,
+          borrowerPhone,
+          borrowerAddress,
+          initialAmount: amount,
+          balance: isNaN(balance) ? 0 : balance,
+          interestRate,
+          date,
+          notes
+        })
+      });
+      showToast('Préstamo actualizado.');
+    } else {
+      data = await apiRequest('/api/loans', {
+        method: 'POST',
+        body: JSON.stringify({
+          sponsorMemberId,
+          borrowerType,
+          borrowerName,
+          borrowerDoc,
+          borrowerPhone,
+          borrowerAddress,
+          amount,
+          interestRate,
+          date,
+          notes
+        })
+      });
+    }
     closeModal('newLoanModal');
     applyState(data);
   } catch (err) {
@@ -1209,20 +1350,272 @@ async function deleteLoanRecord() {
 function openModal(id) { document.getElementById(id).classList.add('open'); }
 function closeModal(id) { document.getElementById(id).classList.remove('open'); }
 
-async function saveNewMember(e) {
+function openCreateMemberModal() {
+  document.getElementById('mEditId').value = '';
+  document.getElementById('mName').value = '';
+  document.getElementById('mPhone').value = '';
+  document.getElementById('memberModalTitle').textContent = 'Registrar Nuevo Miembro';
+  document.getElementById('memberSubmitBtn').textContent = 'Guardar Miembro';
+  openModal('memberModal');
+}
+
+function openEditMemberModal(id) {
+  const member = state.members.find(m => m.id === id);
+  if (!member) return;
+  document.getElementById('mEditId').value = member.id;
+  document.getElementById('mName').value = member.name;
+  document.getElementById('mPhone').value = member.phone || '';
+  document.getElementById('memberModalTitle').textContent = 'Editar Datos del Miembro';
+  document.getElementById('memberSubmitBtn').textContent = 'Guardar Cambios';
+  openModal('memberModal');
+}
+
+async function saveMemberForm(e) {
   e.preventDefault();
+  const editId = document.getElementById('mEditId').value;
   const name = document.getElementById('mName').value.trim();
   const phone = document.getElementById('mPhone').value.trim();
   if (!name) return;
 
   try {
-    const data = await apiRequest('/api/members', {
-      method: 'POST',
-      body: JSON.stringify({ name, phone })
-    });
+    const data = editId
+      ? await apiRequest(`/api/members/${encodeURIComponent(editId)}`, {
+        method: 'PUT',
+        body: JSON.stringify({ name, phone })
+      })
+      : await apiRequest('/api/members', {
+        method: 'POST',
+        body: JSON.stringify({ name, phone })
+      });
     e.target.reset();
     closeModal('memberModal');
     applyState(data);
+    if (editId) showToast('Datos del miembro actualizados.');
+  } catch (err) {
+    alert(err.message);
+  }
+}
+
+// --- SECCIÓN 6: INGRESOS Y EGRESOS (MOVIMIENTOS DE CAJA) ---
+function getRaffleName(id) {
+  const r = state.raffles.find(x => x.id === id);
+  return r ? r.name : '';
+}
+
+function renderMovementsSection(fin) {
+  const kpiEl = document.getElementById('movementsKpiContainer');
+  if (kpiEl) {
+    kpiEl.innerHTML = `
+      <div class="kpi-card mint">
+        <div class="kpi-title">Total Ingresos Adicionales</div>
+        <div class="kpi-value" style="color:var(--status-green-text)">+${formatMoney(fin.totalMovementsIn)}</div>
+        <div class="kpi-sub">Suman al Capital Total del Fondo</div>
+      </div>
+      <div class="kpi-card rose">
+        <div class="kpi-title">Total Salidas / Egresos</div>
+        <div class="kpi-value" style="color:var(--status-red-text)">-${formatMoney(fin.totalMovementsOut)}</div>
+        <div class="kpi-sub">Premios de rifas, gastos y retiros</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-title">Balance Neto de Movimientos</div>
+        <div class="kpi-value" style="color:${fin.netMovements >= 0 ? 'var(--status-green-text)' : 'var(--status-red-text)'}">
+          ${fin.netMovements >= 0 ? '+' : '-'}${formatMoney(Math.abs(fin.netMovements))}
+        </div>
+        <div class="kpi-sub">Impacto neto sobre el Capital Total</div>
+      </div>
+    `;
+  }
+
+  const tbody = document.getElementById('movementsTableBody');
+  if (!tbody) return;
+
+  const dirFilter = document.getElementById('filterMovementDir')?.value || 'all';
+  const q = (document.getElementById('searchMovement')?.value || '').toLowerCase();
+  const list = (state.movements || []).filter(mv => {
+    if (dirFilter !== 'all' && mv.direction !== dirFilter) return false;
+    if (q) {
+      const hay = `${mv.description} ${mv.category} ${mv.date}`.toLowerCase();
+      if (!hay.includes(q)) return false;
+    }
+    return true;
+  });
+
+  tbody.innerHTML = list.length
+    ? list.map(mv => {
+      const isOut = mv.direction === 'out';
+      const badge = isOut
+        ? `<span class="badge badge-pending">Salida (-)</span>`
+        : `<span class="badge badge-ok">Ingreso (+)</span>`;
+      const parts = [];
+      if (mv.raffleId) {
+        const rn = getRaffleName(mv.raffleId);
+        if (rn) parts.push(`Rifa: ${rn}`);
+      }
+      if (mv.memberId) {
+        parts.push(`Miembro: ${getMemberName(mv.memberId)}`);
+      }
+      const assoc = parts.length ? parts.join(' | ') : 'Fondo General';
+
+      return `
+        <tr>
+          <td>${escapeHtml(mv.date)}</td>
+          <td>${badge}</td>
+          <td class="font-bold">${escapeHtml(mv.category)}</td>
+          <td>${escapeHtml(mv.description)}</td>
+          <td><small style="color:var(--muted)">${escapeHtml(assoc)}</small></td>
+          <td class="text-right font-bold" style="color:${isOut ? 'var(--status-red-text)' : 'var(--status-green-text)'}">
+            ${isOut ? '-' : '+'}${formatMoney(mv.amount)}
+          </td>
+          <td>
+            <div style="display:flex; gap:0.3rem; flex-wrap:wrap;">
+              <button class="btn btn-outline btn-sm" onclick="openEditMovementModal('${escapeHtml(mv.id)}')">Editar</button>
+              <button class="btn btn-danger btn-sm" onclick="deleteMovement('${escapeHtml(mv.id)}')">Eliminar</button>
+            </div>
+          </td>
+        </tr>
+      `;
+    }).join('')
+    : `<tr><td colspan="7" class="empty-row">No hay movimientos de caja registrados en este filtro.</td></tr>`;
+}
+
+function populateMovementSelectors(selectedRaffleId = '', selectedMemberId = '') {
+  const rSel = document.getElementById('movRaffleId');
+  rSel.innerHTML = `<option value="">-- Ninguna --</option>` +
+    state.raffles.slice().reverse().map(r =>
+      `<option value="${escapeHtml(r.id)}">${escapeHtml(r.name)} (${r.status === 'active' ? 'Activa' : 'Cerrada'})</option>`
+    ).join('');
+  rSel.value = selectedRaffleId || '';
+
+  const mSel = document.getElementById('movMemberId');
+  mSel.innerHTML = `<option value="">-- Ninguno / Fondo General --</option>` +
+    state.members.map((m, idx) =>
+      `<option value="${escapeHtml(m.id)}">${idx + 1}. ${escapeHtml(m.name)}</option>`
+    ).join('');
+  mSel.value = selectedMemberId || '';
+}
+
+function openMovementModal() {
+  document.getElementById('movEditId').value = '';
+  document.getElementById('movementModalTitle').textContent = 'Registrar Movimiento de Dinero';
+  document.getElementById('movementSubmitBtn').textContent = 'Guardar Movimiento';
+  document.getElementById('movDirection').value = 'out';
+  document.getElementById('movDate').value = new Date().toISOString().slice(0, 10);
+  document.getElementById('movCategory').value = 'Premio de Rifa (Efectivo)';
+  document.getElementById('movAmount').value = '';
+  document.getElementById('movDescription').value = '';
+  const activeRaffle = getActiveRaffle();
+  populateMovementSelectors(activeRaffle ? activeRaffle.id : '', '');
+  openModal('movementModal');
+}
+
+function openEditMovementModal(id) {
+  const mv = (state.movements || []).find(x => x.id === id);
+  if (!mv) return;
+  document.getElementById('movEditId').value = mv.id;
+  document.getElementById('movementModalTitle').textContent = 'Editar Movimiento de Dinero';
+  document.getElementById('movementSubmitBtn').textContent = 'Guardar Cambios';
+  document.getElementById('movDirection').value = mv.direction;
+  document.getElementById('movDate').value = mv.date;
+
+  const catSel = document.getElementById('movCategory');
+  if (!Array.from(catSel.options).some(o => o.value === mv.category)) {
+    const opt = document.createElement('option');
+    opt.value = mv.category;
+    opt.textContent = mv.category;
+    catSel.appendChild(opt);
+  }
+  catSel.value = mv.category;
+  document.getElementById('movAmount').value = mv.amount;
+  document.getElementById('movDescription').value = mv.description;
+  populateMovementSelectors(mv.raffleId, mv.memberId);
+  openModal('movementModal');
+}
+
+async function saveMovementForm(e) {
+  e.preventDefault();
+  const editId = document.getElementById('movEditId').value;
+  const payload = {
+    direction: document.getElementById('movDirection').value,
+    date: document.getElementById('movDate').value,
+    category: document.getElementById('movCategory').value,
+    amount: parseFloat(document.getElementById('movAmount').value) || 0,
+    description: document.getElementById('movDescription').value.trim(),
+    raffleId: document.getElementById('movRaffleId').value,
+    memberId: document.getElementById('movMemberId').value
+  };
+  if (payload.amount <= 0 || !payload.description) return;
+
+  try {
+    const data = editId
+      ? await apiRequest(`/api/movements/${encodeURIComponent(editId)}`, {
+        method: 'PUT',
+        body: JSON.stringify(payload)
+      })
+      : await apiRequest('/api/movements', {
+        method: 'POST',
+        body: JSON.stringify(payload)
+      });
+    closeModal('movementModal');
+    applyState(data);
+    showToast(editId ? 'Movimiento actualizado.' : 'Movimiento registrado y aplicado al capital.');
+  } catch (err) {
+    alert(err.message);
+  }
+}
+
+async function deleteMovement(id) {
+  if (!confirm('¿Eliminar este movimiento de caja? Esto recalculará el Capital Total del Fondo.')) return;
+  try {
+    const data = await apiRequest(`/api/movements/${encodeURIComponent(id)}`, { method: 'DELETE' });
+    applyState(data);
+    showToast('Movimiento eliminado.');
+  } catch (err) {
+    alert(err.message);
+  }
+}
+
+// --- CRUD INDIVIDUAL DEL HISTORIAL ---
+function openEditHistoryModal(id) {
+  const entry = state.history.find(h => h.id === id);
+  if (!entry) return;
+  document.getElementById('histEditId').value = entry.id;
+  document.getElementById('histDate').value = entry.date;
+  document.getElementById('histMemberName').value = entry.memberName;
+  document.getElementById('histType').value = entry.type;
+  document.getElementById('histAmount').value = entry.amount;
+  document.getElementById('histNote').value = entry.note || '';
+  openModal('historyModal');
+}
+
+async function saveHistoryEdit(e) {
+  e.preventDefault();
+  const id = document.getElementById('histEditId').value;
+  const payload = {
+    date: document.getElementById('histDate').value.trim(),
+    memberName: document.getElementById('histMemberName').value.trim(),
+    type: document.getElementById('histType').value.trim(),
+    amount: parseFloat(document.getElementById('histAmount').value),
+    note: document.getElementById('histNote').value.trim()
+  };
+  try {
+    const data = await apiRequest(`/api/history/${encodeURIComponent(id)}`, {
+      method: 'PUT',
+      body: JSON.stringify(payload)
+    });
+    closeModal('historyModal');
+    applyState(data);
+    showToast('Registro de historial actualizado.');
+  } catch (err) {
+    alert(err.message);
+  }
+}
+
+async function deleteHistoryEntry(id) {
+  if (!confirm('¿Eliminar este registro del historial?')) return;
+  try {
+    const data = await apiRequest(`/api/history/${encodeURIComponent(id)}`, { method: 'DELETE' });
+    applyState(data);
+    showToast('Registro eliminado del historial.');
   } catch (err) {
     alert(err.message);
   }

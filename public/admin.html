@@ -62,6 +62,7 @@
     <button class="tab-btn" onclick="switchTab('talonario', this)">3. Talonario 00–99 (Rifa Activa)</button>
     <button class="tab-btn" onclick="switchTab('prestamos', this)">4. Control de Préstamos y Capital</button>
     <button class="tab-btn" onclick="switchTab('rifas', this)">5. Gestión e Historial de Rifas</button>
+    <button class="tab-btn" onclick="switchTab('movimientos', this)">6. Ingresos y Egresos</button>
   </nav>
 </header>
 
@@ -92,6 +93,7 @@
       <input type="number" id="interestRateInput" min="0" max="100" step="0.5" onchange="updateSettings()" style="width: 80px;">
       <button class="btn btn-primary btn-sm" id="topNewRaffleBtn" onclick="tryOpenNewRaffleModal()">+ Nueva Rifa</button>
       <button class="btn btn-accent btn-sm" onclick="openNewLoanModal()">+ Nuevo Préstamo</button>
+      <button class="btn btn-warn btn-sm" onclick="openMovementModal()">+ Ingreso / Salida</button>
     </div>
     <div class="config-group">
       <button class="btn btn-outline btn-sm" onclick="exportBackup()">Exportar Respaldo (JSON)</button>
@@ -134,6 +136,7 @@
       <table>
         <thead>
           <tr>
+            <th style="width:44px;">#</th>
             <th>Miembro Responsable</th>
             <th class="text-right">Pendiente Boletas</th>
             <th class="text-right">Capital Prestado a su Cargo</th>
@@ -150,19 +153,20 @@
   <section id="sec-miembros" class="section">
     <div class="card">
       <div class="card-header">
-        <h3>Registro Detallado por Miembro</h3>
+        <h3 id="membersSectionTitle">Registro Detallado por Miembro</h3>
         <div style="display:flex; gap:0.5rem; flex-wrap:wrap;">
           <input type="text" id="searchMember" placeholder="Buscar miembro..." oninput="renderAll()">
           <button class="btn btn-outline btn-sm" onclick="copyPublicLink('/registro', 'Registro de Miembro')">🔗 Link Registro</button>
-          <button class="btn btn-primary" onclick="openModal('memberModal')">+ Nuevo Miembro</button>
+          <button class="btn btn-primary" onclick="openCreateMemberModal()">+ Nuevo Miembro</button>
         </div>
       </div>
 
       <table>
         <thead>
           <tr>
+            <th style="width:44px;">#</th>
             <th style="width:15%;">Miembro</th>
-            <th style="width:34%;">Números Escogidos (Rifa Activa y Saldos)</th>
+            <th style="width:31%;">Números Escogidos (Rifa Activa y Saldos)</th>
             <th class="text-right">Saldo Boletas</th>
             <th class="text-right">Préstamos a Cargo</th>
             <th class="text-right">Interés Mes</th>
@@ -187,6 +191,7 @@
             <th>Operación</th>
             <th class="text-right">Monto</th>
             <th>Detalle</th>
+            <th>Acciones</th>
           </tr>
         </thead>
         <tbody id="historyTableBody"></tbody>
@@ -343,6 +348,45 @@
     </div>
   </section>
 
+  <!-- SECCIÓN 6: INGRESOS Y EGRESOS (MOVIMIENTOS DE CAJA) -->
+  <section id="sec-movimientos" class="section">
+    <div class="kpi-grid" id="movementsKpiContainer"></div>
+
+    <div class="card">
+      <div class="card-header">
+        <h3>Registro de Ingresos y Salidas de Dinero</h3>
+        <div style="display:flex; gap:0.5rem; flex-wrap:wrap; align-items:center;">
+          <input type="text" id="searchMovement" placeholder="Buscar descripción o categoría..." oninput="renderAll()">
+          <select id="filterMovementDir" onchange="renderAll()" style="width:170px;">
+            <option value="all">Todos los movimientos</option>
+            <option value="in">Solo Ingresos (+)</option>
+            <option value="out">Solo Salidas / Egresos (-)</option>
+          </select>
+          <button class="btn btn-primary" onclick="openMovementModal()">+ Nuevo Movimiento</button>
+        </div>
+      </div>
+
+      <p style="font-size:0.84rem; color:var(--muted); margin-bottom:1rem;">
+        Registra aquí compras o entregas de premios de rifas (en especie o efectivo), gastos operativos o ingresos adicionales. Cada movimiento suma o resta automáticamente del <strong>Capital Total del Fondo</strong>.
+      </p>
+
+      <table>
+        <thead>
+          <tr>
+            <th>Fecha</th>
+            <th>Tipo</th>
+            <th>Categoría</th>
+            <th>Descripción</th>
+            <th>Asociado a</th>
+            <th class="text-right">Monto</th>
+            <th>Acciones</th>
+          </tr>
+        </thead>
+        <tbody id="movementsTableBody"></tbody>
+      </table>
+    </div>
+  </section>
+
 </div>
 
 <!-- MODAL: CAMBIAR CONTRASEÑA ADMIN -->
@@ -370,14 +414,15 @@
   </div>
 </div>
 
-<!-- MODAL: NUEVA RIFA -->
+<!-- MODAL: NUEVA / EDITAR RIFA -->
 <div class="modal-backdrop" id="raffleModal">
   <div class="modal">
-    <h3>Crear Nueva Rifa Activa (Números 00 al 99)</h3>
-    <p style="font-size:0.84rem; color:var(--muted); margin-bottom:0.9rem;">
+    <h3 id="raffleModalTitle">Crear Nueva Rifa Activa (Números 00 al 99)</h3>
+    <p id="raffleModalHint" style="font-size:0.84rem; color:var(--muted); margin-bottom:0.9rem;">
       Esta rifa quedará habilitada como la única rifa activa para que los miembros escojan números.
     </p>
-    <form onsubmit="saveNewRaffle(event)">
+    <form onsubmit="saveRaffleForm(event)">
+      <input type="hidden" id="rEditId">
       <div class="form-group">
         <label>Nombre o descripción de la rifa *</label>
         <input type="text" id="rName" required placeholder="Ej. Rifa Efectivo $1.000.000">
@@ -388,20 +433,22 @@
       </div>
       <div class="modal-actions">
         <button type="button" class="btn btn-outline" onclick="closeModal('raffleModal')">Cancelar</button>
-        <button type="submit" class="btn btn-primary">Iniciar Rifa Activa</button>
+        <button type="submit" class="btn btn-primary" id="raffleSubmitBtn">Iniciar Rifa Activa</button>
       </div>
     </form>
   </div>
 </div>
 
-<!-- MODAL: NUEVO MIEMBRO -->
+<!-- MODAL: NUEVO / EDITAR MIEMBRO -->
 <div class="modal-backdrop" id="memberModal">
   <div class="modal">
-    <h3>Registrar Nuevo Miembro</h3>
-    <form onsubmit="saveNewMember(event)">
+    <h3 id="memberModalTitle">Registrar Nuevo Miembro</h3>
+    <form onsubmit="saveMemberForm(event)">
+      <input type="hidden" id="mEditId">
       <div class="form-group">
         <label>Nombre completo *</label>
         <input type="text" id="mName" required placeholder="Ej. Carlos Mendoza">
+        <small style="color:var(--muted); font-size:0.75rem;">Se estandariza automáticamente con inicial mayúscula en cada nombre y apellido.</small>
       </div>
       <div class="form-group">
         <label>Teléfono / WhatsApp (opcional)</label>
@@ -409,19 +456,20 @@
       </div>
       <div class="modal-actions">
         <button type="button" class="btn btn-outline" onclick="closeModal('memberModal')">Cancelar</button>
-        <button type="submit" class="btn btn-primary">Guardar Miembro</button>
+        <button type="submit" class="btn btn-primary" id="memberSubmitBtn">Guardar Miembro</button>
       </div>
     </form>
   </div>
 </div>
 
-<!-- MODAL: FORMULARIO COMPLETO DE NUEVO PRÉSTAMO -->
+<!-- MODAL: FORMULARIO COMPLETO DE NUEVO / EDITAR PRÉSTAMO -->
 <div class="modal-backdrop" id="newLoanModal">
   <div class="modal">
-    <h3>Formulario de Desembolso de Préstamo</h3>
+    <h3 id="loanModalTitle">Formulario de Desembolso de Préstamo</h3>
     <div id="loanLimitBanner" class="alert-box alert-ok"></div>
 
-    <form onsubmit="saveNewLoan(event)">
+    <form onsubmit="saveLoanForm(event)">
+      <input type="hidden" id="loanEditId">
       <div class="form-group">
         <label>1. Miembro Responsable (Obligatorio — Codeudor / Encargado) *</label>
         <select id="loanSponsorId" required onchange="onBorrowerTypeChange()"></select>
@@ -459,13 +507,18 @@
 
       <div class="form-row">
         <div class="form-group">
-          <label>Monto a Prestar ($) *</label>
+          <label>Monto Inicial ($) *</label>
           <input type="number" id="bAmount" min="1000" step="1000" required oninput="validateLoanAmountPreview()">
         </div>
         <div class="form-group">
           <label>Interés Mensual de este Préstamo (%) *</label>
           <input type="number" id="bInterestRate" min="0" max="100" step="0.5" required oninput="validateLoanAmountPreview()">
         </div>
+      </div>
+
+      <div class="form-group" id="bBalanceGroup" style="display:none;">
+        <label>Saldo Adeudado Actual ($) *</label>
+        <input type="number" id="bBalance" min="0" step="1000">
       </div>
 
       <div class="form-row">
@@ -536,15 +589,126 @@
 <div class="modal-backdrop" id="numberDetailModal">
   <div class="modal">
     <h3 id="numModalTitle">Boleta #00</h3>
-    <p id="numModalInfo" style="margin-bottom:1rem; font-size:0.92rem;"></p>
-    <input type="hidden" id="numModalCode">
-    <div class="modal-actions" style="justify-content:space-between;">
-      <button type="button" class="btn btn-danger" onclick="releaseNumber()">Liberar Número</button>
-      <div style="display:flex; gap:0.5rem;">
-        <button type="button" class="btn btn-outline" onclick="closeModal('numberDetailModal')">Cerrar</button>
-        <button type="button" class="btn btn-accent" id="togglePaidNumberBtn" onclick="toggleNumberPaid()">Marcar Pagada</button>
+    <p id="numModalInfo" style="margin-bottom:0.9rem; font-size:0.9rem;"></p>
+    <form onsubmit="saveNumberDetail(event)">
+      <input type="hidden" id="numModalCode">
+      <div class="form-group">
+        <label>Miembro asignado *</label>
+        <select id="numModalMemberId" required></select>
       </div>
-    </div>
+      <div class="form-group">
+        <label>Estado de pago *</label>
+        <select id="numModalPaid">
+          <option value="0">Pendiente de Pago</option>
+          <option value="1">Pagada</option>
+        </select>
+      </div>
+      <div class="modal-actions" style="justify-content:space-between;">
+        <button type="button" class="btn btn-danger" onclick="releaseNumber()">Liberar Número</button>
+        <div style="display:flex; gap:0.5rem;">
+          <button type="button" class="btn btn-outline" onclick="closeModal('numberDetailModal')">Cerrar</button>
+          <button type="submit" class="btn btn-accent">Guardar Cambios</button>
+        </div>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- MODAL: NUEVO / EDITAR MOVIMIENTO DE CAJA (INGRESO / SALIDA) -->
+<div class="modal-backdrop" id="movementModal">
+  <div class="modal">
+    <h3 id="movementModalTitle">Registrar Movimiento de Dinero</h3>
+    <form onsubmit="saveMovementForm(event)">
+      <input type="hidden" id="movEditId">
+      <div class="form-row">
+        <div class="form-group">
+          <label>Tipo de Movimiento *</label>
+          <select id="movDirection" required>
+            <option value="out">Salida / Egreso (-)</option>
+            <option value="in">Ingreso / Entrada (+)</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Fecha *</label>
+          <input type="date" id="movDate" required>
+        </div>
+      </div>
+
+      <div class="form-row">
+        <div class="form-group">
+          <label>Categoría *</label>
+          <select id="movCategory" required>
+            <option value="Premio de Rifa (Efectivo)">Premio de Rifa (Efectivo)</option>
+            <option value="Compra Premio de Rifa">Compra Premio de Rifa</option>
+            <option value="Aporte / Ingreso Extra">Aporte / Ingreso Extra</option>
+            <option value="Gasto Operativo">Gasto Operativo</option>
+            <option value="Devolución / Ajuste">Devolución / Ajuste</option>
+            <option value="Otro">Otro</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Monto ($) *</label>
+          <input type="number" id="movAmount" min="1" step="100" required placeholder="Ej. 500000">
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label>Descripción detallada *</label>
+        <textarea id="movDescription" rows="3" required placeholder="Ej. Pago premio ganador boleta #45 en efectivo / Compra de televisor para rifa de diciembre"></textarea>
+      </div>
+
+      <div class="form-row">
+        <div class="form-group">
+          <label>Rifa relacionada (opcional)</label>
+          <select id="movRaffleId"></select>
+        </div>
+        <div class="form-group">
+          <label>Miembro relacionado (opcional)</label>
+          <select id="movMemberId"></select>
+        </div>
+      </div>
+
+      <div class="modal-actions">
+        <button type="button" class="btn btn-outline" onclick="closeModal('movementModal')">Cancelar</button>
+        <button type="submit" class="btn btn-primary" id="movementSubmitBtn">Guardar Movimiento</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- MODAL: EDITAR REGISTRO DE HISTORIAL -->
+<div class="modal-backdrop" id="historyModal">
+  <div class="modal">
+    <h3>Editar Registro del Historial</h3>
+    <form onsubmit="saveHistoryEdit(event)">
+      <input type="hidden" id="histEditId">
+      <div class="form-row">
+        <div class="form-group">
+          <label>Fecha *</label>
+          <input type="text" id="histDate" required>
+        </div>
+        <div class="form-group">
+          <label>Monto ($) *</label>
+          <input type="number" id="histAmount" step="any" required>
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Responsable *</label>
+        <input type="text" id="histMemberName" required>
+      </div>
+      <div class="form-group">
+        <label>Operación *</label>
+        <input type="text" id="histType" required>
+      </div>
+      <div class="form-group">
+        <label>Detalle / Descripción</label>
+        <textarea id="histNote" rows="2"></textarea>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-outline" onclick="closeModal('historyModal')">Cancelar</button>
+        <button type="submit" class="btn btn-primary">Guardar Cambios</button>
+      </div>
+    </form>
   </div>
 </div>
 
