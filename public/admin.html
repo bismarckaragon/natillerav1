@@ -45,63 +45,34 @@
 <!-- APLICACIÓN PRINCIPAL DE ADMINISTRACIÓN (OCULTA HASTA AUTENTICAR) -->
 <div id="adminApp" style="display:none;">
 
-<header>
+<header class="admin-header">
   <div class="admin-header-top">
-    <div>
-      <h1>Panel de Administración — Natillera</h1>
+    <div class="admin-brand">
+      <button type="button" class="hamburger-btn" id="mobileMenuBtn" onclick="toggleMobileNav()" aria-label="Abrir menú" aria-expanded="false">
+        <span class="ham-line"></span>
+        <span class="ham-line"></span>
+        <span class="ham-line"></span>
+      </button>
+      <h1>Natillera <span class="brand-sub" id="mobileCurrentTab">Resumen</span></h1>
     </div>
     <div class="admin-header-actions">
-      <a href="/" class="header-ghost-link" target="_blank">Portal Miembros ↗</a>
-      <button type="button" class="header-ghost-btn" id="changePwdHeaderBtn" onclick="openChangePasswordModal()" style="display:none;">🔑 Contraseña</button>
-      <button type="button" class="header-ghost-btn" onclick="logoutAdmin()">Cerrar Sesión</button>
+      <a href="/" class="header-ghost-link" target="_blank" title="Abrir Portal de Miembros">🌐 <span class="hide-xs">Portal</span></a>
+      <button type="button" class="header-ghost-btn" id="changePwdHeaderBtn" onclick="openChangePasswordModal()" style="display:none;" title="Cambiar contraseña">🔑 <span class="hide-xs">Clave</span></button>
+      <button type="button" class="header-ghost-btn" onclick="logoutAdmin()" title="Cerrar sesión">Salir</button>
     </div>
   </div>
-  <nav class="nav-tabs">
-    <button class="tab-btn active" onclick="switchTab('resumen', this)">1. Resumen General</button>
-    <button class="tab-btn" onclick="switchTab('miembros', this)">2. Registro por Miembro</button>
-    <button class="tab-btn" onclick="switchTab('talonario', this)">3. Talonario 00–99 (Rifa Activa)</button>
-    <button class="tab-btn" onclick="switchTab('prestamos', this)">4. Control de Préstamos y Capital</button>
-    <button class="tab-btn" onclick="switchTab('rifas', this)">5. Gestión e Historial de Rifas</button>
-    <button class="tab-btn" onclick="switchTab('movimientos', this)">6. Ingresos y Egresos</button>
+  <nav class="nav-tabs" id="adminNavTabs" aria-label="Navegación principal">
+    <button class="tab-btn active" data-label="Resumen" onclick="switchTab('resumen', this)"><span class="tab-ico">📊</span> Resumen</button>
+    <button class="tab-btn" data-label="Miembros" onclick="switchTab('miembros', this)"><span class="tab-ico">👥</span> Miembros</button>
+    <button class="tab-btn" data-label="Talonario" onclick="switchTab('talonario', this)"><span class="tab-ico">🎟️</span> Talonario</button>
+    <button class="tab-btn" data-label="Préstamos" onclick="switchTab('prestamos', this)"><span class="tab-ico">💰</span> Préstamos</button>
+    <button class="tab-btn" data-label="Rifas" onclick="switchTab('rifas', this)"><span class="tab-ico">🏆</span> Rifas</button>
+    <button class="tab-btn" data-label="Caja" onclick="switchTab('movimientos', this)"><span class="tab-ico">💸</span> Caja</button>
   </nav>
 </header>
+<div id="mobileNavBackdrop" class="mobile-nav-backdrop" onclick="closeMobileNav()"></div>
 
 <div class="container">
-
-  <!-- Barra de Enlaces para Compartir con Miembros -->
-  <div class="share-links-bar">
-    <div class="share-links-title">
-      <strong>Enlaces para enviar a miembros:</strong>
-      <small>Compártelos por WhatsApp sin dar acceso al panel de administración.</small>
-    </div>
-    <div class="share-links-actions">
-      <button type="button" class="btn btn-primary btn-sm" onclick="copyPublicLink('/registro', 'Registro de Miembro')">
-        🔗 Copiar Link de Registro
-      </button>
-      <button type="button" class="btn btn-accent btn-sm" onclick="copyPublicLink('/rifa', 'Escoger Números de la Rifa')">
-        🎟️ Copiar Link de Rifa
-      </button>
-      <a href="/registro" target="_blank" class="btn btn-outline btn-sm" style="text-decoration:none;">Abrir Registro ↗</a>
-      <a href="/rifa" target="_blank" class="btn btn-outline btn-sm" style="text-decoration:none;">Abrir Rifa ↗</a>
-    </div>
-  </div>
-
-  <!-- Barra de Parámetros y Respaldo -->
-  <div class="config-bar">
-    <div class="config-group">
-      <label for="interestRateInput">Tasa Base Sugerida (% mensual):</label>
-      <input type="number" id="interestRateInput" min="0" max="100" step="0.5" onchange="updateSettings()" style="width: 80px;">
-      <button class="btn btn-primary btn-sm" id="topNewRaffleBtn" onclick="tryOpenNewRaffleModal()">+ Nueva Rifa</button>
-      <button class="btn btn-accent btn-sm" onclick="openNewLoanModal()">+ Nuevo Préstamo</button>
-      <button class="btn btn-warn btn-sm" onclick="openMovementModal()">+ Ingreso / Salida</button>
-    </div>
-    <div class="config-group">
-      <button class="btn btn-outline btn-sm" onclick="exportBackup()">Exportar Respaldo (JSON)</button>
-      <label class="btn btn-outline btn-sm" style="cursor:pointer;">
-        Importar JSON <input type="file" accept=".json" onchange="importBackup(event)" style="display:none;">
-      </label>
-    </div>
-  </div>
 
   <!-- SECCIÓN 1: RESUMEN GENERAL -->
   <section id="sec-resumen" class="section active">
@@ -257,6 +228,14 @@
       </div>
 
       <div class="policy-grid">
+        <div>
+          <label for="interestRateInput" style="font-size:0.82rem; font-weight:700; color:var(--primary); display:block; margin-bottom:0.3rem;">
+            Tasa Base Sugerida (% mensual):
+          </label>
+          <input type="number" id="interestRateInput" min="0" max="100" step="0.5" onchange="updateSettings()" style="width:100%;">
+          <small style="color:var(--muted); font-size:0.76rem;">Tasa sugerida por defecto al crear un nuevo préstamo.</small>
+        </div>
+
         <div>
           <label style="font-size:0.82rem; font-weight:700; color:var(--primary); display:block; margin-bottom:0.3rem;">
             Aporte Inicial / Capital Base ($):
@@ -737,6 +716,72 @@
       </div>
     </form>
   </div>
+</div>
+
+<!-- MODAL: ENLACES PARA COMPARTIR CON MIEMBROS -->
+<div class="modal-backdrop" id="shareLinksModal">
+  <div class="modal">
+    <h3>Enlaces para Miembros</h3>
+    <p style="font-size:0.86rem; color:var(--muted); margin-bottom:1rem;">
+      Compártelos por WhatsApp para que los miembros se registren o escojan sus números sin ver el panel administrativo.
+    </p>
+    <div class="share-modal-list">
+      <div class="share-modal-item">
+        <div>
+          <strong>📝 Enlace de Registro</strong>
+          <small>Para inscribir nuevos miembros</small>
+        </div>
+        <div class="share-modal-btns">
+          <button type="button" class="btn btn-primary btn-sm" onclick="copyPublicLink('/registro', 'Registro de Miembro')">Copiar</button>
+          <a href="/registro" target="_blank" class="btn btn-outline btn-sm" style="text-decoration:none;">Abrir ↗</a>
+        </div>
+      </div>
+
+      <div class="share-modal-item">
+        <div>
+          <strong>🎟️ Enlace de Talonario (Rifa)</strong>
+          <small>Para escoger números disponibles 00–99</small>
+        </div>
+        <div class="share-modal-btns">
+          <button type="button" class="btn btn-accent btn-sm" onclick="copyPublicLink('/rifa', 'Escoger Números de la Rifa')">Copiar</button>
+          <a href="/rifa" target="_blank" class="btn btn-outline btn-sm" style="text-decoration:none;">Abrir ↗</a>
+        </div>
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button type="button" class="btn btn-outline" onclick="closeModal('shareLinksModal')">Cerrar</button>
+    </div>
+  </div>
+</div>
+
+<!-- BOTONES FLOTANTES (ACCIONES RÁPIDAS Y ENLACES) -->
+<div id="fabBackdrop" class="fab-backdrop" onclick="closeFabMenu()"></div>
+<div class="fab-container" aria-label="Acciones rápidas">
+  <div class="fab-menu" id="fabMenu">
+    <button type="button" class="fab-item" onclick="closeFabMenu(); openMovementModal();">
+      <span class="fab-item-label">Ingreso / Salida</span>
+      <span class="fab-item-icon fab-ico-warn">💸</span>
+    </button>
+    <button type="button" class="fab-item" onclick="closeFabMenu(); openNewLoanModal();">
+      <span class="fab-item-label">Nuevo Préstamo</span>
+      <span class="fab-item-icon fab-ico-accent">💰</span>
+    </button>
+    <button type="button" class="fab-item" id="topNewRaffleBtn" onclick="closeFabMenu(); tryOpenNewRaffleModal();">
+      <span class="fab-item-label">Nueva Rifa</span>
+      <span class="fab-item-icon fab-ico-primary">🏆</span>
+    </button>
+    <button type="button" class="fab-item" onclick="closeFabMenu(); openCreateMemberModal();">
+      <span class="fab-item-label">Nuevo Miembro</span>
+      <span class="fab-item-icon fab-ico-blue">👤</span>
+    </button>
+  </div>
+
+  <button type="button" class="fab-btn fab-secondary" onclick="closeFabMenu(); openModal('shareLinksModal');" title="Enlaces para enviar a miembros" aria-label="Enlaces para enviar a miembros">
+    🔗
+  </button>
+  <button type="button" class="fab-btn fab-main" id="fabMainBtn" onclick="toggleFabMenu()" title="Acciones rápidas" aria-label="Acciones rápidas" aria-expanded="false">
+    +
+  </button>
 </div>
 
 </div> <!-- /#adminApp -->

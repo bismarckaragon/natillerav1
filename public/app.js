@@ -229,11 +229,66 @@ function pad2(n) {
 }
 
 function switchTab(tab, btn) {
+  closeFabMenu();
+  closeMobileNav();
   document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
   document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
   document.getElementById('sec-' + tab).classList.add('active');
   btn.classList.add('active');
+  const currentTabBadge = document.getElementById('mobileCurrentTab');
+  if (currentTabBadge && btn.dataset?.label) {
+    currentTabBadge.textContent = btn.dataset.label;
+  }
   if (tab === 'talonario') renderBoard();
+}
+
+function toggleMobileNav() {
+  const nav = document.getElementById('adminNavTabs');
+  const backdrop = document.getElementById('mobileNavBackdrop');
+  const btn = document.getElementById('mobileMenuBtn');
+  if (!nav || !btn) return;
+  const isOpen = nav.classList.toggle('mobile-open');
+  backdrop?.classList.toggle('open', isOpen);
+  btn.classList.toggle('open', isOpen);
+  btn.setAttribute('aria-expanded', String(isOpen));
+}
+
+function closeMobileNav() {
+  const nav = document.getElementById('adminNavTabs');
+  const backdrop = document.getElementById('mobileNavBackdrop');
+  const btn = document.getElementById('mobileMenuBtn');
+  nav?.classList.remove('mobile-open');
+  backdrop?.classList.remove('open');
+  btn?.classList.remove('open');
+  btn?.setAttribute('aria-expanded', 'false');
+}
+
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') {
+    closeMobileNav();
+    closeFabMenu();
+  }
+});
+
+function toggleFabMenu() {
+  const menu = document.getElementById('fabMenu');
+  const backdrop = document.getElementById('fabBackdrop');
+  const btn = document.getElementById('fabMainBtn');
+  if (!menu || !btn) return;
+  const isOpen = menu.classList.toggle('open');
+  backdrop?.classList.toggle('open', isOpen);
+  btn.classList.toggle('open', isOpen);
+  btn.setAttribute('aria-expanded', String(isOpen));
+}
+
+function closeFabMenu() {
+  const menu = document.getElementById('fabMenu');
+  const backdrop = document.getElementById('fabBackdrop');
+  const btn = document.getElementById('fabMainBtn');
+  menu?.classList.remove('open');
+  backdrop?.classList.remove('open');
+  btn?.classList.remove('open');
+  btn?.setAttribute('aria-expanded', 'false');
 }
 
 async function updateSettings() {
@@ -1700,33 +1755,6 @@ async function clearHistory() {
   } catch (err) {
     alert(err.message);
   }
-}
-
-function exportBackup() {
-  window.location.href = '/api/backup';
-}
-
-function importBackup(event) {
-  const file = event.target.files[0];
-  if (!file) return;
-  const reader = new FileReader();
-  reader.onload = async (e) => {
-    try {
-      const parsed = JSON.parse(e.target.result);
-      const data = await apiRequest('/api/backup/import', {
-        method: 'POST',
-        body: JSON.stringify(parsed)
-      });
-      tempSelectedNumbers.clear();
-      applyState(data);
-      alert('Respaldo cargado y guardado en SQLite correctamente.');
-    } catch (err) {
-      alert('No se pudo importar el archivo: ' + err.message);
-    } finally {
-      event.target.value = '';
-    }
-  };
-  reader.readAsText(file);
 }
 
 initAuth();
